@@ -213,7 +213,6 @@ describe('שלב 8 פרוסה 2 (§4.3) — חוזה העברת Worker', () => {
   });
 
   it('PageModel preserves glyph sidecars through Worker transport, hashes them, and leaves geometry unchanged', () => {
-    const text = 'שלום';
     const r = typeset(['כותרת 1 - חלק', text + ' עולם', 'פסקת סיום.'].join('\\n'), S());
     const baselineModel = r.pageModel;
     let injected = false;
@@ -221,22 +220,27 @@ describe('שלב 8 פרוסה 2 (§4.3) — חוזה העברת Worker', () => {
       ...page,
       columns: (page.columns || []).map(column => column.map(line => {
         if (injected || !line.lineModel || !Array.isArray(line.lineModel.fragments)) return line;
-        const target = line.lineModel.fragments.find(fragment =>
-          fragment.kind === 'text' &&
-          Array.isArray(fragment.fragments) &&
-          fragment.fragments.length === 1 &&
-          fragment.fragments[0].text === text &&
-          fragment.sourceRange &&
-          Number.isSafeInteger(fragment.sourceRange.start) &&
-          fragment.sourceRange.end - fragment.sourceRange.start === text.length
-        );
+        let targetText = null;
+        const target = line.lineModel.fragments.find(fragment => {
+          if (fragment.kind !== 'text' || !Array.isArray(fragment.fragments) ||
+              fragment.fragments.length !== 1 || !fragment.sourceRange ||
+              !Number.isSafeInteger(fragment.sourceRange.start)) return false;
+          const candidate = String(fragment.fragments[0].text || '');
+          if (candidate.length < 2 || /\\p{M}/u.test(candidate) ||
+              fragment.sourceRange.end - fragment.sourceRange.start !== candidate.length) return false;
+          targetText = candidate;
+          return true;
+        });
         if (!target) return line;
-
+        const text = targetText;
         const start = target.sourceRange.start;
         const end = target.sourceRange.end;
-        const graphemes = Array.from(text, (character, index) => ({
-          start: start + index, end: start + index + character.length, text: character
-        }));
+        let sourceCursor = start;
+        const graphemes = Array.from(text, character => {
+          const grapheme = { start: sourceCursor, end: sourceCursor + character.length, text: character };
+          sourceCursor += character.length;
+          return grapheme;
+        });
         const glyphs = graphemes.map((grapheme, index) => ({
           gid: index + 1,
           cluster: grapheme.start,
