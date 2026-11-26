@@ -378,19 +378,34 @@ function shapedWordPdfOps(word, xPx, baselinePx, sizePt, pageHeightPt) {
   let drawnGlyphs = 0;
   for (const entry of visual) {
     const run = entry.run;
+    const direction = run.shaping && run.shaping.direction;
+    if (direction !== 'rtl' && direction !== 'ltr') {
+      return { ok: false, error: 'shaped-run-direction-invalid' };
+    }
     const xScalePt = (sizePt / run.font.unitsPerEm) * segmentScale.get(entry.segment);
     const yScalePt = sizePt / run.font.unitsPerEm;
+    const runAdvancePx = run.glyphs.reduce((sum, glyph) =>
+      sum + glyph.xAdvance * sizePx / run.font.unitsPerEm * segmentScale.get(entry.segment), 0);
+    if (!Number.isFinite(runAdvancePx) || runAdvancePx < 0) {
+      return { ok: false, error: 'shaped-run-advance-invalid' };
+    }
+    // HarfBuzz returns visual glyph order within each ScriptRun. LTR runs
+    // advance from their left edge; RTL runs begin at their right edge.
+    let glyphPenPx = direction === 'rtl' ? penPx + runAdvancePx : penPx;
     for (const glyph of run.glyphs) {
+      const glyphAdvancePx = glyph.xAdvance * sizePx / run.font.unitsPerEm * segmentScale.get(entry.segment);
+      if (direction === 'rtl') glyphPenPx -= glyphAdvancePx;
       if (glyph.outlinePath.length) {
         const pathOps = svgOutlineToPdfOps(glyph.outlinePath);
         if (!pathOps || !pathOps.length) return { ok: false, error: 'invalid-native-glyph-outline-path' };
-        const gxPt = xPx * PX_TO_PT + penPx * PX_TO_PT + glyph.xOffset * xScalePt;
+        const gxPt = xPx * PX_TO_PT + glyphPenPx * PX_TO_PT + glyph.xOffset * xScalePt;
         const gyPt = pageHeightPt - baselinePx * PX_TO_PT + glyph.yOffset * yScalePt;
         ops.push(`q ${pdfPrecise(xScalePt)} 0 0 ${pdfPrecise(yScalePt)} ${round2(gxPt)} ${round2(gyPt)} cm ${pathOps.join(' ')} f Q`);
         drawnGlyphs++;
       }
-      penPx += glyph.xAdvance * sizePx / run.font.unitsPerEm * segmentScale.get(entry.segment);
+      if (direction === 'ltr') glyphPenPx += glyphAdvancePx;
     }
+    penPx += runAdvancePx;
   }
   if (!drawnGlyphs) return { ok: false, error: 'page-word-has-no-visible-glyph-outline' };
   if (Math.abs(penPx - word.w) > Math.max(1.25, word.w * 0.015)) {
