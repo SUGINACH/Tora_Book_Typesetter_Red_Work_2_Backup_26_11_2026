@@ -575,11 +575,20 @@ function projectStampedRows(n, x, w, yTop, opts) {
   const glyph = (v) => Math.max(0, (Number(v) || 0) - spaceW); // חותמת נושאת גליף+רווח
   const isCont = n.isContinuation === true || n.mode === 'split-rest';
   const prefix = [];
-  if (isCont && Number(n.contMarkW) > 0) prefix.push({ text: NM.CONTINUATION_MARK, w: glyph(n.contMarkW) });
+  if (isCont && Number(n.contMarkW) > 0) prefix.push({
+    text: NM.CONTINUATION_MARK, w: glyph(n.contMarkW),
+    ...(n.contMarkTypography ? { typography: n.contMarkTypography } : {})
+  });
   const mkTxt = noteMarkerOf(n, { 'footnote-marker-style': null });
-  if (mkTxt && Number(n.markerW) > 0) prefix.push({ text: scrubPUAText(mkTxt), w: glyph(n.markerW), mk: true });
+  if (mkTxt && Number(n.markerW) > 0) prefix.push({
+    text: scrubPUAText(mkTxt), w: glyph(n.markerW), mk: true,
+    ...(n.markerTypography ? { typography: n.markerTypography } : {})
+  });
   if (!isCont && n.counterMark != null && String(n.counterMark) !== '' && Number(n.counterMarkW) > 0) {
-    prefix.push({ text: scrubPUAText(String(n.counterMark)), w: glyph(n.counterMarkW) });
+    prefix.push({
+      text: scrubPUAText(String(n.counterMark)), w: glyph(n.counterMarkW),
+      ...(n.counterMarkTypography ? { typography: n.counterMarkTypography } : {})
+    });
   }
   const ascent = opts.measure.ascentEm(), descent = opts.measure.descentEm();
   const sizePx = sizePt * (96 / 72);
@@ -590,7 +599,10 @@ function projectStampedRows(n, x, w, yTop, opts) {
     const toks = [];
     if (li === 0) for (const p of prefix) toks.push(p);
     for (let i = row.wFrom; i < row.wTo; i++) {
-      toks.push({ text: scrubPUAText(String(words[i])), w: row.wordW[i - row.wFrom] });
+      toks.push({
+        text: scrubPUAText(String(words[i])), w: row.wordW[i - row.wFrom],
+        ...(n.noteWordTypography && n.noteWordTypography[i] ? { typography: n.noteWordTypography[i] } : {})
+      });
     }
     const live = toks.filter(t => t.text && String(t.text).trim());
     const sumW = live.reduce((s, t) => s + t.w, 0);
@@ -612,8 +624,11 @@ function projectStampedRows(n, x, w, yTop, opts) {
     let cursor = centerAlign ? gx + (gw + sumW + gaps * gapW) / 2 - gapW / 2 : gx + gw;
     for (const t of live) {
       cursor -= t.w;
-      const wd = { text: t.text, x: cursor, w: t.w, sizePt, baselineY, fontKey: opts.fontKey,
-        ...(t.mk ? { mk: true } : {}), ...(opts.color ? { color: opts.color } : {}) };
+      const wd = {
+        text: t.text, x: cursor, w: t.w, sizePt, baselineY, lineY: y, fontKey: opts.fontKey,
+        ...(t.typography ? { typography: t.typography } : {}),
+        ...(t.mk ? { mk: true } : {}), ...(opts.color ? { color: opts.color } : {})
+      };
       wds.push(wd);
       flat.push(wd);
       cursor -= gapW;
@@ -770,9 +785,12 @@ function projectEndnotePage(page, settings, measure, out, production) {
         rec.lines.forEach((line) => {
           out.lines.push({
             x: col.x, y: line.y, w: col.w, h: pitch,
-            words: line.words.map(wd => ({ text: wd.text, x: wd.x, w: wd.w, sizePt: wd.sizePt, fontKey: wd.fontKey })),
+            words: line.words.map(wd => ({
+              text: wd.text, x: wd.x, w: wd.w, sizePt: wd.sizePt, fontKey: wd.fontKey,
+              ...(wd.typography ? { typography: wd.typography } : {})
+            })),
             align: 'right', kind: 'endnote-note', level: null, isLast: true, sizePt: notePt,
-            baselineY: null, tokenId: n.tokenId != null ? n.tokenId : null
+            baselineY: line.baselineY, tokenId: n.tokenId != null ? n.tokenId : null
           });
         });
       }
@@ -829,9 +847,12 @@ function projectSideNotes(page, settings, measure, out) {
     rec.lines.forEach((line) => {
       out.lines.push({
         x: sn.x, y: line.y, w: boxW, h: sn.lineH,
-        words: line.words.map(wd => ({ text: wd.text, x: wd.x, w: wd.w, sizePt: wd.sizePt, fontKey: wd.fontKey })),
+        words: line.words.map(wd => ({
+          text: wd.text, x: wd.x, w: wd.w, sizePt: wd.sizePt, fontKey: wd.fontKey,
+          ...(wd.typography ? { typography: wd.typography } : {})
+        })),
         align: 'right', kind: isBox ? 'info-box' : 'side-note', level: sn.level != null ? sn.level : null,
-        isLast: true, sizePt, baselineY: null,
+        isLast: true, sizePt, baselineY: line.baselineY,
         tokenId: sn.anchorToken != null ? sn.anchorToken : (sn.ownToken != null ? sn.ownToken : null)
       });
     });

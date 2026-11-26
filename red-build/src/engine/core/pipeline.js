@@ -254,6 +254,12 @@ function typeset(rawText, settingsIn, env = {}) {
   // בודקים את measure.impl ומדלגים על הפקטור ב-impl B.
   const measureWithImpl = (t, s) => api.measureTextWidth(t, s);
   measureWithImpl.impl = api.impl;
+  // Notes share this exact measurement boundary and shaping service; no alternate
+  // note-specific layout engine or browser/PDF shaping pass is introduced.
+  if (paragraphShaper) {
+    measureWithImpl.paragraphShaper = paragraphShaper;
+    measureWithImpl.paragraphDirection = paragraphDirection || 'rtl';
+  }
   // **שלב 3 (§3.1-2) → מקטע ב׳ (הוראה §6):** נכסי המסמך שהגיעו מה-Worker
   // כבר חוברו לבניית המודל וזורמים למדידה דרך ctx.assetResolver של הגשר
   // (אותן זהויות בדיוק). האירוע מתעד את הקליטה; אין עוד צריכה תלוית-סביבה.

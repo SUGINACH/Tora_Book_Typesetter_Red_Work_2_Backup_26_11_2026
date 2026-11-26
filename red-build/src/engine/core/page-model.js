@@ -603,6 +603,8 @@ function notePlacement(n, proj, where) {
       ...(wd.sizePt != null ? { sizePt: wd.sizePt } : {}),
       ...(wd.fontKey != null ? { fontKey: wd.fontKey } : {}),
       ...(wd.color != null ? { color: wd.color } : {}),
+      ...(wd.typography ? { typography: wd.typography } : {}),
+      ...(wd.lineY != null ? { lineY: r2(wd.lineY) } : {}),
       ...(wd.mk ? { mk: true } : {})
     })) : [],
     ...where

@@ -696,6 +696,25 @@ function renderModelPage(mp, settings, doc, opts = {}) {
           if (wd.sizePt != null) span.style.fontSize = `${px2(wd.sizePt * PT_TO_PX)}px`;
           const fam = familyOf(wd.fontKey);
           if (fam) span.style.fontFamily = fam;
+          const outlineLine = {
+            y: Number.isFinite(wd.lineY) ? wd.lineY : (wd.baselineY || 0) - lineH * 0.8,
+            h: lineH,
+            sizePt: wd.sizePt,
+            baselineY: wd.baselineY
+          };
+          if (wd.typography && appendGlyphOutlineWord(outlineLine, wd, span, doc)) {
+            row.appendChild(span);
+            continue;
+          }
+          if (wd.typography) {
+            diags.push({
+              kind: 'footnote-glyph-outline-fallback',
+              page: mp.index,
+              noteId: n.noteId || null,
+              word: wd.text,
+              reason: span.dataset.glyphOutlineFallback || 'outline-render-failed'
+            });
+          }
           span.textContent = scrubPUAText(wd.text);
           row.appendChild(span);
         }

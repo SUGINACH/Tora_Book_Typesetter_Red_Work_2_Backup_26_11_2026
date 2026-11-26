@@ -279,6 +279,7 @@ describe('Production typography runtime — pinned local assets', () => {
       const settings = {
         'body-font': 'Frank Ruhl Libre',
         'heading-1-font': 'David Libre',
+        'f-note-body-font': 'Frank Ruhl Libre',
         'body-font-size-pt': 12,
         'body-line-height': 1.34,
         '_engine-force-unified': true
@@ -286,7 +287,7 @@ describe('Production typography runtime — pinned local assets', () => {
       assert(!Object.prototype.hasOwnProperty.call(settings, '_typographyShaping'),
         'ordinary product settings must not need a manual shaping opt-in');
       const result = typeset(
-        'כותרת 1 - בדיקת גופן כותרת\nשמע ישראל mixed English text לבדיקת shaping.\n— …\n',
+        'כותרת 1 - בדיקת גופן כותרת\nשמע ישראל mixed English text לבדיקת shaping עם הערת שוליים [בדיקת גליפים להערה בעברית ובאנגלית note words].\n— …\n',
         settings,
         { typographyRuntime: runtime }
       );
@@ -303,6 +304,13 @@ describe('Production typography runtime — pinned local assets', () => {
         'heading TextItems must use heading-1-font, not the global body font');
       assert(shapedRuns.some(run => run.shaping.script === 'Zyyy' && run.shaping.language === 'und'),
         'the real product pipeline must shape an isolated visible Common-script paragraph');
+      const noteWords = result.pageModel.pages.flatMap(page => page.footnotes || [])
+        .flatMap(note => note.words || []);
+      assert(noteWords.length > 0, 'the real product pipeline must materialize the footnote words');
+      assert(noteWords.every(word => word.typography &&
+        word.typography.contractVersion === 'page-word-typography-v1' &&
+        word.typography.glyphCount > 0),
+      'footnote words must carry HarfBuzz glyph outlines through PageModel, not browser-shaped text');
       assert(result.events.events.some(event =>
         event.label === 'paragraph-shaping-enabled' &&
         event.payload && event.payload.mode === 'product-defaults'),
