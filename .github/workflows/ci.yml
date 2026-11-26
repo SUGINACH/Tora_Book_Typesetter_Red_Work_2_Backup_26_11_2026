@@ -29,6 +29,10 @@ jobs:
             command -v "$t" >/dev/null 2>&1 || { echo "MISSING: $t (expected after poppler-utils install)"; exit 1; }
           done
           test -f /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf || { echo "MISSING: DejaVuSans.ttf (expected after fonts-dejavu-core install)"; exit 1; }
+      # D-65: every matrix job validates the generated bundles from this exact source checkout.
+      # The rebuild-bundles workflow also commits them, but that push is concurrent with CI.
+      - name: Rebuild deterministic browser bundles before tests
+        run: node tools/build-worker-bundle.js
       # **S5.3:** הסוויטות של S5.2 (s52-dp/s52-ui/audit-sensitivity) נוספו לשרשרת —
       # עד כאן היו קיימות בעץ אך לא הורצו בשום workflow (מוקש שנתפס בסקירת S5.3).
       # **שלב 5 פרוסה 2 (דיוק דיווח — §3.3 בביקורת):** התווית מתעדכנת למספרים

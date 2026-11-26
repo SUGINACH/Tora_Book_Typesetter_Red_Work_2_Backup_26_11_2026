@@ -121,8 +121,13 @@ jobs:
           git fetch origin engine/legacy-parity-preview-20261119
           remote_head="$(git rev-parse FETCH_HEAD)"
           if [ "$remote_head" != "$GITHUB_SHA" ]; then
-            echo "::error::Working branch moved during runtime proof; refusing to publish assets."
-            exit 1
+            if git merge-base --is-ancestor "$GITHUB_SHA" "$remote_head"; then
+              echo "Working branch advanced by a descendant commit during runtime proof; publishing verified assets on top of the new tip."
+              git reset --hard "$remote_head"
+            else
+              echo "::error::Working branch diverged or rewound during runtime proof; refusing to publish assets."
+              exit 1
+            fi
           fi
           target="red-build/ui/assets/shaping-runtime"
           rm -rf "$target"
