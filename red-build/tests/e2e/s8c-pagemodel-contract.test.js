@@ -27,6 +27,8 @@ const { tinyPngFor } = require('../helpers/tiny-png');
 const { serializeTypesetResult, serializePageModelTransport } = require('../../src/ui/worker-protocol');
 const { receivePageModel } = require('../../src/ui/page-model-transport');
 const { createEngineWorkerMain } = require('../../src/ui/engine-worker-main');
+const { createShapedRun } = require('../../src/engine/typography/shaped-run');
+const { projectShapedTextItemRanges } = require('../../src/engine/typography/paragraph-shaping');
 
 const S = () => getDefaultSettings();
 const CORPUS = fs.readFileSync(path.join(__dirname, '../fixtures/canonical_corpus.txt'), 'utf8');
@@ -209,6 +211,132 @@ describe('שלב 8 פרוסה 2 (§4.3) — חוזה העברת Worker', () => {
     assertEq(received.metrics.pages, direct.pages.length, 'אותו מספר עמודים');
     assert(received.metrics.bytesEstimate > 5000, `גודל העברה (${received.metrics.bytesEstimate})`);
   });
+
+  it('PageModel preserves glyph sidecars through Worker transport, hashes them, and leaves geometry unchanged', () => {
+    const text = 'שלום';
+    const r = typeset(['כותרת 1 - חלק', text + ' עולם', 'פסקת סיום.'].join('\\n'), S());
+    const baselineModel = r.pageModel;
+    let injected = false;
+    const shapedPages = r.pages.map(page => ({
+      ...page,
+      columns: (page.columns || []).map(column => column.map(line => {
+        if (injected || !line.lineModel || !Array.isArray(line.lineModel.fragments)) return line;
+        const target = line.lineModel.fragments.find(fragment =>
+          fragment.kind === 'text' &&
+          Array.isArray(fragment.fragments) &&
+          fragment.fragments.length === 1 &&
+          fragment.fragments[0].text === text &&
+          fragment.sourceRange &&
+          Number.isSafeInteger(fragment.sourceRange.start) &&
+          fragment.sourceRange.end - fragment.sourceRange.start === text.length
+        );
+        if (!target) return line;
+
+        const start = target.sourceRange.start;
+        const end = target.sourceRange.end;
+        const graphemes = Array.from(text, (character, index) => ({
+          start: start + index, end: start + index + character.length, text: character
+        }));
+        const glyphs = graphemes.map((grapheme, index) => ({
+          gid: index + 1,
+          cluster: grapheme.start,
+          xAdvance: 600,
+          yAdvance: 0,
+          xOffset: index === 1 ? 12 : 0,
+          yOffset: index === 1 ? -24 : 0,
+          flags: 0,
+          controlBounds: null,
+          inkBounds: null
+        })).reverse();
+        const shapedRun = createShapedRun({
+          id: 'pagemodel-sidecar#hebrew-word',
+          text,
+          sourceRange: {
+            start, end,
+            blockId: target.sourceRange.blockId || 's8c-sidecar',
+            itemId: target.sourceRange.itemId || target.itemId
+          },
+          font: {
+            fontId: 'fnt-page-model-sidecar',
+            faceIndex: 0,
+            unitsPerEm: 2048,
+            sourceHash: 'a'.repeat(64)
+          },
+          shaping: {
+            engine: 'harfbuzz',
+            engineVersion: '15.0.0',
+            unicodeVersion: '18.0.0',
+            script: 'Hebr',
+            language: 'he',
+            direction: 'rtl',
+            bidiLevel: 1,
+            bot: true,
+            eot: true,
+            clusterLevel: 'monotone-characters',
+            variationAxes: [],
+            features: [{ tag: 'kern', value: 1 }]
+          },
+          graphemes,
+          glyphs
+        });
+        const shapedTextItem = {
+          kind: 'ShapedTextItem',
+          itemId: target.sourceItemId || target.itemId,
+          text,
+          sourceRange: { start, end },
+          shapedRuns: [shapedRun],
+          nonShapingRuns: []
+        };
+        const shapingSlices = projectShapedTextItemRanges(shapedTextItem, [{ start, end }]);
+        const lineModel = {
+          ...line.lineModel,
+          fragments: line.lineModel.fragments.map(fragment =>
+            fragment.itemId === target.itemId ? { ...fragment, shapingSlices } : fragment
+          ),
+          flow: line.lineModel.flow.map(step =>
+            step.type === 'box' && step.itemId === target.itemId
+              ? { ...step, shapingSlices } : step
+          )
+        };
+        injected = true;
+        return { ...line, lineModel };
+      }))
+    }));
+    assert(injected, 'a plain Hebrew word with a source range was found and shaped');
+
+    const built = buildPageModel({ ...r, pages: shapedPages }, {});
+    assertEq(built.validation.violations.length, 0,
+      'glyph sidecar remains valid in PageModel: ' + JSON.stringify(built.validation.violations.slice(0, 2)));
+    const line = built.model.pages.flatMap(page => page.lines).find(item => item.typography);
+    assert(line, 'PageModel retains a line-level typography sidecar');
+    assertEq(line.typography.contractVersion, 'page-line-typography-v1');
+    assertEq(line.typography.fragments.length, 1, 'one shaped word fragment retained');
+    assertEq(line.typography.flow.length, 1, 'the corresponding visual-flow box retained');
+    assertEq(line.typography.fragments[0].shapingSlices.glyphCount, 4, 'all four glyphs retained');
+    const offsetGlyph = line.typography.fragments[0].shapingSlices.shapedRuns[0].glyphs.find(glyph => glyph.xOffset === 12);
+    assert(offsetGlyph, 'non-zero horizontal glyph offset survives PageModel materialization');
+    assertEq(offsetGlyph.yOffset, -24, 'vertical mark offset survives PageModel materialization');
+    assertEq(built.model.geometryHash, baselineModel.geometryHash,
+      'glyph sidecar does not alter page geometry or word positions');
+    assert(built.model.contentHash !== baselineModel.contentHash,
+      'content hash covers glyph IDs/clusters/advances/offsets');
+
+    const envelope = serializePageModelTransport(built.model);
+    const received = receivePageModel(structuredClone(envelope));
+    assert(received.ok, 'PageModel with glyph sidecar passes the real transport receiver');
+    const receivedLine = received.model.pages.flatMap(page => page.lines).find(item => item.typography);
+    assert(receivedLine, 'glyph sidecar survives structured clone');
+    const receivedOffsetGlyph = receivedLine.typography.fragments[0].shapingSlices.shapedRuns[0].glyphs.find(glyph => glyph.xOffset === 12);
+    assertEq(receivedOffsetGlyph.yOffset, -24, 'glyph positioning survives Worker transport');
+    assert(Object.isFrozen(receivedOffsetGlyph), 'received glyph record is immutable');
+    const tampered = structuredClone(envelope);
+    tampered.model.pages.flatMap(page => page.lines)
+      .find(item => item.typography)
+      .typography.fragments[0].shapingSlices.shapedRuns[0].glyphs[0].gid += 1;
+    assertEq(receivePageModel(tampered).ok, false,
+      'glyph-level tampering is rejected by the PageModel content hash');
+  });
+
 });
 
 report('s8c-pagemodel-contract');
