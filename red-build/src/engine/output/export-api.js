@@ -26,6 +26,15 @@ const { buildStandaloneHtml } = require('./html-export');
 const { renderModelPage } = require('./pagemodel-dom-renderer');
 const { PAGE_SIZES, MM_TO_PX } = require('../layout/page-templates');
 const { utf8Decode } = require('../import/zip-reader'); // פענוח UTF-8 סביבת-אגנוסטי (רשומות zip = Uint8Array)
+// **S74 (תיקון שורש גרסה 3, 26.11 — הקרנת מדיניות הניקוד לכותב ה-PDF):** מקור
+// יחיד לצד הייצוא — משקף את מדידת המנוע המאוחד (RC-M4: סימן משולב ב-advance 0
+// כש-_marks-advance=combined). ההקרנה ב-/W בלבד — הגליפים וה-hmtx המוטמע אינם
+// משתנים. הוחזר לפעולה לאחר שסביבת שער s74 תוקנה (דין וחשבון 26.11): בגרסה 2
+// השער מדד קונפליקט גופנים של סביבת הבדיקה (מודל במימוש-טבלה מול FrankReal
+// אמיתי בייצוא) — החיווט עצמו הוכח בטוח על 107 הסוויטות בריצת dac8df1.
+// **המורשת מוגנת:** legacy מודד ומצייר ב-hmtx מופרד (חוזה הייחוס) ואינו עובר
+// דרך המדיניות — נעילות המורשת לא נגעות.
+const { applyCombinedMarkPolicy } = require('./pdf-mark-policy');
 
 /** טעינה עצלה של נתיבי Node (מוגנת) — מחזירה null בסביבה בלי Buffer. */
 function nodeOnly(loader) {
@@ -152,7 +161,7 @@ function exportPdf(text, settingsIn, fontBytes, fontName, env) {
   try {
     const font = reg.profile;
     // **סדר הפעולות (תיקון שורש):** עימוד → הקרנה → מלאי מ**כל הטקסט שמצויר
-    // בפועל** (גוף+פסים+TOC+מרזב+גיליון+כותרות) → מצמום → כתיבה.
+    // בפועל** (גוף+פסים+TOC+מרזב+גיליון+כותרות) → מצווץ → כתיבה.
     // בעבר נבנה המלאי מטקסט המקור בלבד — וגרשיים נגזרים (גיליון כ״ב, תוויות
     // TOC) הושמטו בשקט מהגופן ⇒ אובדן תוכן בייצוא.
     const settings = {
@@ -161,7 +170,7 @@ function exportPdf(text, settingsIn, fontBytes, fontName, env) {
       'measure-impl': 'font-metrics'
     };
     const result = typeset(text, settings, { noRecommendations: true, ...(env || {}) });
-    // **S4.9:** פרופיל IMUD — הקרנה ממקרן ה-legacy (גיאומטריה מפורשת מהייחוס)
+    // **S4.9:** פרופיל IMUD — הקרנה ממקרין ה-legacy (גיאומטריה מפורשת מהייחוס)
     // **S71.1 (double-check — projection measurement consistency):** the
     // projection must measure with the SAME impl that built the model
     // (impl B — registered-font metrics). Until now projectDocument built
@@ -468,16 +477,21 @@ function exportPdf(text, settingsIn, fontBytes, fontName, env) {
           ? Math.abs(profile.descender) / profile.unitsPerEm : 0.2
       });
     }
+    // **S74 (גרסה 3):** בפרופיל המאוחד המדידה מאפסת ניקוד משולב (combined —
+    // pipeline קובע על ההגדרות הפנימיות) — הכותב מקרין את אותה החלטה ב-/W.
+    // המורשת (legacyProfile) מודדת ומציירת ב-hmtx מופרד כמו מנוע המקור
+    // (הוכח מהייחוס) — המדיניות אינה חלה עליה; נעילות המורשת שמורות.
+    const mp = result.legacyProfile ? (f) => f : applyCombinedMarkPolicy;
     const bytes = writePdf({
       pages: projected.pages,
       pageSizeMm,
-      font: fontForWriter,
-      font2: fontForWriter2,
-      font3: fontForWriter3,
-      font4: fontForWriter4,
-      font5: fontForWriter5,
-      font6: fontForWriter6,
-      extraFonts,
+      font: mp(fontForWriter),
+      font2: mp(fontForWriter2),
+      font3: mp(fontForWriter3),
+      font4: mp(fontForWriter4),
+      font5: mp(fontForWriter5),
+      font6: mp(fontForWriter6),
+      extraFonts: extraFonts.map(e => ({ ...e, font: mp(e.font) })),
       settings,
       outline,
       tocLinks
@@ -559,7 +573,11 @@ function exportPdfFromModel(model, settingsIn, fontBytes, fontName) {
     const f1Inventory = inventory.filter(ch => glyphIdOf(font, ch) !== 0);
     const subset = buildSubset(font, f1Inventory);
     if (!subset.ok) return { ok: false, error: `subset:${subset.error}` };
-    const mkFont = (sub) => {
+    // **S74 (גרסה 3):** נתיב המודל הוא פרופיל מאוחד תמיד (PageModel ממוקם-
+    // מוחלט; המדידה combined מאפסת ניקוד) — המדיניות חלה על כל גופני הכותב
+    // שנבנים כאן (F1..F6 + משפחות): ה-/W משקף את החלטת המדידה, הגליפים
+    // וה-hmtx המוטמע אינם משתנים.
+    const mkFontRaw = (sub) => {
       const c2g = subsetNewCmap(sub);
       return {
         subsetBytes: sub.bytes, widthsUnits: sub.widthsUnits, unitsPerEm: sub.unitsPerEm,
@@ -567,6 +585,7 @@ function exportPdfFromModel(model, settingsIn, fontBytes, fontName) {
         charToGidEntries: () => [...c2g.entries()]
       };
     };
+    const mkFont = (sub) => applyCombinedMarkPolicy(mkFontRaw(sub));
     const fontForWriter = mkFont(subset);
     // ---- גופני-תפקידים מהמודל (window/heading/fnbody/margin) + משפחות רשודות ----
     // **Iteration-003 (תיקון שורש — תצוגה=ייצוא):** מילות המודל נושאות את
