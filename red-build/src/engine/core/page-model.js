@@ -715,6 +715,36 @@ function validatePageModel(model, ctx = {}) {
         if (!valid) violations.push({ code: 'line-typography-contract-invalid', detail: String(page.index) + ':' + String(ln.id) });
         check('typography-projection');
       }
+      const wordTypographyValid = (typography) => {
+        if (!typography || typography.contractVersion !== 'page-word-typography-v1' ||
+            !Array.isArray(typography.segments) || !typography.segments.length ||
+            !Number.isSafeInteger(typography.glyphCount) || typography.glyphCount <= 0) return false;
+        let totalGlyphs = 0;
+        for (const segment of typography.segments) {
+          if (!segment || !Number.isFinite(segment.advancePx) || segment.advancePx < 0 ||
+              !Array.isArray(segment.shapedRuns) || !segment.shapedRuns.length) return false;
+          for (const run of segment.shapedRuns) {
+            if (!run || run.kind !== 'ShapedRun' || run.contractVersion !== 'shaped-run-v1' ||
+                !run.font || typeof run.font.fontId !== 'string' ||
+                typeof run.font.sourceHash !== 'string' || !Number.isSafeInteger(run.font.unitsPerEm) ||
+                !Array.isArray(run.glyphs) || !run.glyphs.length) return false;
+            for (const glyph of run.glyphs) {
+              if (!glyph || !Number.isSafeInteger(glyph.gid) || glyph.gid <= 0 ||
+                  !Number.isFinite(glyph.xAdvance) || !Number.isFinite(glyph.xOffset) ||
+                  !Number.isFinite(glyph.yOffset) ||
+                  (glyph.outlinePath != null && typeof glyph.outlinePath !== 'string')) return false;
+            }
+            totalGlyphs += run.glyphs.length;
+          }
+        }
+        return totalGlyphs === typography.glyphCount;
+      };
+      for (const word of (ln.words || [])) {
+        if (word.typography != null && !wordTypographyValid(word.typography)) {
+          violations.push({ code: 'word-typography-contract-invalid', detail: String(page.index) + ':' + String(ln.id) + ':' + String(word.text) });
+        }
+        if (word.typography != null) check('word-typography');
+      }
       check('source-identity');
     }
   }
