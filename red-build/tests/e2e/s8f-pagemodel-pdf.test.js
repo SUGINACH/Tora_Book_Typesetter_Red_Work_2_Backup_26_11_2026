@@ -19,6 +19,7 @@ const { typeset } = require('../../src/engine/core/pipeline');
 const { getDefaultSettings } = require('../../src/engine/core/settings-registry');
 const { exportPdfFromModel } = require('../../src/engine/output/export-api');
 const { registerFont, clearRegisteredFonts } = require('../../src/engine/typography/measure-api');
+const zlib = require('zlib');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const ASSETS = path.join(REPO, 'ui/assets/imud');
@@ -341,3 +342,80 @@ describe('S8F — native HarfBuzz glyph outlines in PDF', () => {
 });
 
 report('s8f-pagemodel-pdf');
+
+
+// =====================================================================
+describe('S8F raster images — asset bytes reach PDF XObjects', () => {
+  function crc32(bytes) {
+    let crc = 0xffffffff;
+    for (const byte of bytes) {
+      crc ^= byte;
+      for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+    }
+    return (crc ^ 0xffffffff) >>> 0;
+  }
+  function pngChunk(type, data) {
+    const typeBytes = Buffer.from(type, 'ascii');
+    const body = Buffer.concat([typeBytes, data]);
+    const out = Buffer.alloc(12 + data.length);
+    out.writeUInt32BE(data.length, 0);
+    body.copy(out, 4);
+    out.writeUInt32BE(crc32(body), 8 + data.length);
+    return out;
+  }
+  function onePixelRgbPng() {
+    const ihdr = Buffer.alloc(13);
+    ihdr.writeUInt32BE(1, 0); // width
+    ihdr.writeUInt32BE(1, 4); // height
+    ihdr[8] = 8; // bit depth
+    ihdr[9] = 2; // truecolor RGB, no alpha
+    ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
+    const scanline = Buffer.from([0, 0x22, 0x66, 0xaa]); // filter 0 + one RGB pixel
+    return Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      pngChunk('IHDR', ihdr),
+      pngChunk('IDAT', zlib.deflateSync(scanline)),
+      pngChunk('IEND', Buffer.alloc(0))
+    ]);
+  }
+
+  it('embeds verified PNG bytes and paints them at PageModel coordinates', () => {
+    const { S, model, fontBytes } = setup();
+    const imageModel = JSON.parse(JSON.stringify(model));
+    const page = imageModel.pages.find(p => p.type === 'regular') || imageModel.pages[0];
+    const assetId = 'ast-image-0123456789abcd';
+    page.images = [{
+      itemId: 'image-test-1', assetId, resourcePath: 'images/test.png',
+      x: 41, y: 57, w: 36, h: 24, resolved: true
+    }];
+    const bytes = onePixelRgbPng();
+    const assets = {
+      resolveById(id) {
+        return id === assetId
+          ? { ok: true, asset: { bytes, measured: { format: 'png', orientation: 1 } } }
+          : { ok: false };
+      }
+    };
+    const result = exportPdfFromModel(imageModel, S, fontBytes, 'Frank Ruhl Libre', assets);
+    assert(result.ok, 'PDF image export succeeds: ' + (result.error || ''));
+    const pdf = Buffer.from(result.bytes).toString('latin1');
+    assert(pdf.includes('/Subtype /Image /Width 1 /Height 1'), 'a PDF Image XObject is embedded');
+    assert(pdf.includes('/Filter /FlateDecode /DecodeParms << /Predictor 15'), 'PNG predictor is preserved');
+    assert(pdf.includes('/XObject << /Im1 '), 'page resources reference the image XObject');
+    assert(pdf.includes('/Im1 Do'), 'the image is painted into the page content stream');
+    assert(pdf.includes('27 0 0 18'), 'the planned 36×24px geometry is converted to points');
+  });
+
+  it('fails explicitly when image bytes are unavailable instead of exporting a blank page', () => {
+    const { S, model, fontBytes } = setup();
+    const imageModel = JSON.parse(JSON.stringify(model));
+    const page = imageModel.pages.find(p => p.type === 'regular') || imageModel.pages[0];
+    page.images = [{
+      itemId: 'image-test-missing', assetId: 'ast-image-missing1234',
+      x: 10, y: 10, w: 20, h: 20, resolved: true
+    }];
+    const result = exportPdfFromModel(imageModel, S, fontBytes, 'Frank Ruhl Libre');
+    assert(!result.ok && /pdf-image-assets-required/.test(result.error),
+      'missing resolver must be reported: ' + result.error);
+  });
+});
