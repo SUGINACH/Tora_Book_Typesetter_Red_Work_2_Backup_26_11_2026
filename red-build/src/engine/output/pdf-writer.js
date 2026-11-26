@@ -63,6 +63,7 @@ function escapePdfText(s) {
   return String(s).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
 }
 function round2(v) { return Math.round(v * 100) / 100; }
+function pdfPrecise(v) { const n = Math.round(Number(v) * 1e6) / 1e6; return Object.is(n, -0) ? '0' : String(n); }
 
 /** **כותרת סימנייה עברית:** מחרוזת טקסט PDF לא־לטינית ⇒ UTF-16BE עם BOM
  * כמחרוזת הקסדצימלית (חוזה PDF 1.4 §3.8.4) — קוראים מציגים עברית תקינה. */
@@ -349,7 +350,7 @@ function shapedWordPdfOps(word, xPx, baselinePx, sizePt, pageHeightPt) {
         if (!pathOps || !pathOps.length) return { ok: false, error: 'invalid-native-glyph-outline-path' };
         const gxPt = xPx * PX_TO_PT + penPx * PX_TO_PT + glyph.xOffset * xScalePt;
         const gyPt = pageHeightPt - baselinePx * PX_TO_PT + glyph.yOffset * yScalePt;
-        ops.push(`q ${round2(xScalePt)} 0 0 ${round2(yScalePt)} ${round2(gxPt)} ${round2(gyPt)} cm ${pathOps.join(' ')} f Q`);
+        ops.push(`q ${pdfPrecise(xScalePt)} 0 0 ${pdfPrecise(yScalePt)} ${round2(gxPt)} ${round2(gyPt)} cm ${pathOps.join(' ')} f Q`);
         drawnGlyphs++;
       }
       penPx += glyph.xAdvance * sizePx / run.font.unitsPerEm * segmentScale.get(entry.segment);
