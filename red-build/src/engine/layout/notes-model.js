@@ -170,7 +170,7 @@ function shapeNoteText(text, note, ctx, measure, role) {
         text: value,
         sourceStart: 0,
         sourceEnd: value.length,
-        ...(ctx.fontName ? { fontFamily: ctx.fontName } : {})
+        ...(service.useItemFontRole === true && ctx.fontName ? { fontFamily: ctx.fontName } : {})
       }]
     }
   };

@@ -280,6 +280,9 @@ describe('Production typography runtime — pinned local assets', () => {
         'body-font': 'Frank Ruhl Libre',
         'heading-1-font': 'David Libre',
         'f-note-body-font': 'Frank Ruhl Libre',
+        'fn-layout-mode': 'block',
+        'fn-bar-max-height-px': 40,
+        'long-footnote-policy': 'split',
         'body-font-size-pt': 12,
         'body-line-height': 1.34,
         '_engine-force-unified': true
@@ -287,7 +290,9 @@ describe('Production typography runtime — pinned local assets', () => {
       assert(!Object.prototype.hasOwnProperty.call(settings, '_typographyShaping'),
         'ordinary product settings must not need a manual shaping opt-in');
       const result = typeset(
-        'כותרת 1 - בדיקת גופן כותרת\nשמע ישראל mixed English text לבדיקת shaping עם הערת שוליים [בדיקת גליפים להערה בעברית ובאנגלית note words].\n— …\n',
+        'כותרת 1 - בדיקת גופן כותרת\nשמע ישראל mixed English text לבדיקת shaping עם הערת שוליים ['
+          + 'בדיקת גליפים להערה בעברית ובאנגלית note words '.repeat(12)
+          + '].\n— …\n',
         settings,
         { typographyRuntime: runtime }
       );
@@ -311,6 +316,9 @@ describe('Production typography runtime — pinned local assets', () => {
         word.typography.contractVersion === 'page-word-typography-v1' &&
         word.typography.glyphCount > 0),
       'footnote words must carry HarfBuzz glyph outlines through PageModel, not browser-shaped text');
+      const splitFragments = result.pageModel.pages.flatMap(page => page.footnotes || []);
+      assert(splitFragments.some(note => note.continuationOf),
+        'the production acceptance document must exercise a real long-footnote split');
       assert(result.events.events.some(event =>
         event.label === 'paragraph-shaping-enabled' &&
         event.payload && event.payload.mode === 'product-defaults'),
