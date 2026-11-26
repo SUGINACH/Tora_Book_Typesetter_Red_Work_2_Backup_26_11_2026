@@ -563,6 +563,7 @@ function placeLine(pl, srcLine, where) {
       ...(wd.fontKey != null ? { fontKey: wd.fontKey } : {}),
       ...(wd.baselineY != null ? { baselineY: r2(wd.baselineY) } : {}),
       ...(wd.color != null ? { color: wd.color } : {}),
+      ...(wd.typography ? { typography: wd.typography } : {}),
       ...(wd.mk ? { mk: true } : {})
     })),
     // Optional glyph-level sidecar; current positioned words and renderers are unchanged.
