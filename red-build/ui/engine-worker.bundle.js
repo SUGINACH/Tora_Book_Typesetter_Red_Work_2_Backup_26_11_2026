@@ -10389,7 +10389,12 @@ function shapedFragmentMetricsOf(fragment, shapingSlices, style) {
     // Bidi controls are intentionally non-shaping and have zero advance.
     const visible = String(fragment.text || '').replace(/[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '');
     if (visible.length) {
-      const error = new Error('Visible source-fragment text has no HarfBuzz output cluster');
+      const nonShapingKinds = (shapingSlices.nonShapingRuns || []).map(run => run && run.kind).filter(Boolean);
+      const error = new Error(
+        'Visible source-fragment text has no HarfBuzz output cluster ' +
+        '(source ' + start + '-' + end + ', text ' + JSON.stringify(visible) +
+        ', non-shaping kinds ' + JSON.stringify(nonShapingKinds) + ')'
+      );
       error.code = 'shaped-fragment-glyph-coverage-gap';
       throw error;
     }
@@ -29585,6 +29590,17 @@ __modules["src/engine/typography/unicode18-bidi-runtime.js"] = function (require
 
         resolveCommonInherited(graphemes);
         const pairedPunctuationPairCount = resolvePairedPunctuation(graphemes);
+        // Visible Common/Inherited graphemes without a strong-script neighbor
+        // still require glyph shaping. Use Unicode Script=Common (Zyyy), but
+        // never guess for Script_Extensions, mixed-script or Bidi_Control clusters.
+        for (const grapheme of graphemes) {
+          if (!grapheme.script && grapheme.status === 'unresolved-common-inherited' &&
+              grapheme.candidates.length === 0 && grapheme.primaryScripts.length === 0 &&
+              !grapheme.containsBidiControl) {
+            grapheme.script = 'Zyyy';
+            grapheme.status = 'common-script-default';
+          }
+        }
         for (const grapheme of graphemes) {
           grapheme.shapeable = Boolean(grapheme.script) &&
             !grapheme.containsBidiControl &&
