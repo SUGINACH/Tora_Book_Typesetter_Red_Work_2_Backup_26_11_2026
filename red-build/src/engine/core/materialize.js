@@ -599,6 +599,10 @@ function projectStampedRows(n, x, w, yTop, opts) {
     const toks = [];
     if (li === 0) for (const p of prefix) toks.push(p);
     for (let i = row.wFrom; i < row.wTo; i++) {
+      // noteRows.wordW stores the glyph advance only; spaceW is accounted
+      // separately in row wrapping and positioning. Subtracting a space here
+      // (as we do for prefix widths, which include a trailing space) shrank
+      // every note word and caused its visible glyphs to collide with neighbors.
       toks.push({
         text: scrubPUAText(String(words[i])), w: row.wordW[i - row.wFrom],
         ...(n.noteWordTypography && n.noteWordTypography[i] ? { typography: n.noteWordTypography[i] } : {})
