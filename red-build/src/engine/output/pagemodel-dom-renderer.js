@@ -37,9 +37,9 @@ function nonBlack(c) {
     // null/undefined (not an array) is the only "inherit" state.
     return `rgb(${channels.join(', ')})`;
   }
-  if (typeof c !== 'string' || !c) return null;
-  const s = c.trim().toLowerCase();
-  if (s === '#000' || s === '#000000' || s === 'black' || s === 'rgb(0, 0, 0)') return null;
+  if (typeof c !== 'string' || !c.trim()) return null;
+  // String colors in PageModel are explicit too, including black. Only null
+  // means inherit from the page root.
   return c;
 }
 
