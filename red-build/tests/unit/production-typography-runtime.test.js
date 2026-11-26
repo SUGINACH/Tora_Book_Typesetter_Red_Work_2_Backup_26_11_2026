@@ -231,8 +231,10 @@ describe('Production typography runtime — pinned local assets', () => {
         run.glyphs.length > 0 && run.glyphs.every(glyph =>
           Number.isSafeInteger(glyph.gid) && glyph.gid > 0 &&
           Number.isFinite(glyph.xAdvance) && Number.isFinite(glyph.xOffset) &&
-          Number.isFinite(glyph.yOffset))),
-      'PageModel glyph records retain GID, advances and offsets');
+          Number.isFinite(glyph.yOffset) && typeof glyph.outlinePath === 'string')),
+      'PageModel glyph records retain GID, advances, offsets and native outline paths');
+      assert(shapedRuns.some(run => run.glyphs.some(glyph => glyph.outlinePath.length > 0)),
+        'at least one actual glyph outline is captured from the real Worker HarfBuzz runtime');
       assert(Object.isFrozen(result.pageModel) && Object.isFrozen(shapedRuns[0]) &&
         Object.isFrozen(shapedRuns[0].glyphs),
       'the PageModel transport payload remains deeply immutable');
