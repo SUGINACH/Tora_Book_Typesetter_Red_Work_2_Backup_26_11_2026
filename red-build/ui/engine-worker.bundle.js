@@ -34345,17 +34345,31 @@ function glyphOutlineSvgOf(wd, ml, doc) {
     const run = entry.run;
     const scaleY = sizePx / run.font.unitsPerEm;
     const scaleX = scaleY * segmentScale.get(entry.segment);
+    const direction = run.shaping && run.shaping.direction;
+    if (direction !== 'rtl' && direction !== 'ltr') {
+      return { svg: null, reason: 'shaped-run-direction-invalid' };
+    }
+    const runAdvancePx = run.glyphs.reduce((sum, glyph) => sum + glyph.xAdvance * scaleX, 0);
+    if (!Number.isFinite(runAdvancePx) || runAdvancePx < 0) {
+      return { svg: null, reason: 'shaped-run-advance-invalid' };
+    }
+    // HarfBuzz returns glyphs in visual order within a run. RTL output starts
+    // at the right edge and advances left; LTR output starts at the left edge.
+    let glyphPenX = direction === 'rtl' ? penX + runAdvancePx : penX;
     for (const glyph of run.glyphs) {
+      const glyphAdvancePx = glyph.xAdvance * scaleX;
+      if (direction === 'rtl') glyphPenX -= glyphAdvancePx;
       if (glyph.outlinePath.length) {
         const path = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
         path.setAttribute('d', glyph.outlinePath);
         path.setAttribute('transform',
-          `translate(${px2(penX + glyph.xOffset * scaleX)} ${px2(baseline - glyph.yOffset * scaleY)}) scale(${scaleX} ${-scaleY})`);
+          `translate(${px2(glyphPenX + glyph.xOffset * scaleX)} ${px2(baseline - glyph.yOffset * scaleY)}) scale(${scaleX} ${-scaleY})`);
         path.setAttribute('fill', 'currentColor');
         svg.appendChild(path);
       }
-      penX += glyph.xAdvance * scaleX;
+      if (direction === 'ltr') glyphPenX += glyphAdvancePx;
     }
+    penX += runAdvancePx;
   }
   if (Math.abs(penX - width) > Math.max(1.25, width * 0.015)) {
     return { svg: null, reason: 'positioned-glyph-advance-does-not-match-word-width' };
@@ -35791,19 +35805,34 @@ function shapedWordPdfOps(word, xPx, baselinePx, sizePt, pageHeightPt) {
   let drawnGlyphs = 0;
   for (const entry of visual) {
     const run = entry.run;
+    const direction = run.shaping && run.shaping.direction;
+    if (direction !== 'rtl' && direction !== 'ltr') {
+      return { ok: false, error: 'shaped-run-direction-invalid' };
+    }
     const xScalePt = (sizePt / run.font.unitsPerEm) * segmentScale.get(entry.segment);
     const yScalePt = sizePt / run.font.unitsPerEm;
+    const runAdvancePx = run.glyphs.reduce((sum, glyph) =>
+      sum + glyph.xAdvance * sizePx / run.font.unitsPerEm * segmentScale.get(entry.segment), 0);
+    if (!Number.isFinite(runAdvancePx) || runAdvancePx < 0) {
+      return { ok: false, error: 'shaped-run-advance-invalid' };
+    }
+    // HarfBuzz returns visual glyph order within each ScriptRun. LTR runs
+    // advance from their left edge; RTL runs begin at their right edge.
+    let glyphPenPx = direction === 'rtl' ? penPx + runAdvancePx : penPx;
     for (const glyph of run.glyphs) {
+      const glyphAdvancePx = glyph.xAdvance * sizePx / run.font.unitsPerEm * segmentScale.get(entry.segment);
+      if (direction === 'rtl') glyphPenPx -= glyphAdvancePx;
       if (glyph.outlinePath.length) {
         const pathOps = svgOutlineToPdfOps(glyph.outlinePath);
         if (!pathOps || !pathOps.length) return { ok: false, error: 'invalid-native-glyph-outline-path' };
-        const gxPt = xPx * PX_TO_PT + penPx * PX_TO_PT + glyph.xOffset * xScalePt;
+        const gxPt = xPx * PX_TO_PT + glyphPenPx * PX_TO_PT + glyph.xOffset * xScalePt;
         const gyPt = pageHeightPt - baselinePx * PX_TO_PT + glyph.yOffset * yScalePt;
         ops.push(`q ${pdfPrecise(xScalePt)} 0 0 ${pdfPrecise(yScalePt)} ${round2(gxPt)} ${round2(gyPt)} cm ${pathOps.join(' ')} f Q`);
         drawnGlyphs++;
       }
-      penPx += glyph.xAdvance * sizePx / run.font.unitsPerEm * segmentScale.get(entry.segment);
+      if (direction === 'ltr') glyphPenPx += glyphAdvancePx;
     }
+    penPx += runAdvancePx;
   }
   if (!drawnGlyphs) return { ok: false, error: 'page-word-has-no-visible-glyph-outline' };
   if (Math.abs(penPx - word.w) > Math.max(1.25, word.w * 0.015)) {
