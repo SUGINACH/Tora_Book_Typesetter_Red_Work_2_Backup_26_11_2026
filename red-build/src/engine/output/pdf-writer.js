@@ -188,6 +188,182 @@ function buildToUnicode(font) {
 }
 
 /**
+ * Convert the restricted absolute SVG outline emitted by the canonical
+ * HarfBuzz DrawFuncs callbacks into PDF path operators. No font shaping or
+ * glyph lookup happens here: these are the exact GID outlines in font units.
+ */
+function svgOutlineToPdfOps(pathData) {
+  if (typeof pathData !== 'string') return null;
+  if (!pathData.length) return [];
+  const numberPattern = /[-+]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][-+]?\\d+)?/;
+  const tokenPattern = /[MLCQZ]|[-+]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][-+]?\\d+)?/g;
+  const residue = pathData.replace(/[MLCQZ]/g, '').replace(new RegExp(numberPattern.source, 'g'), '').replace(/[\\s,]/g, '');
+  if (residue.length) return null;
+  const tokens = pathData.match(tokenPattern) || [];
+  if (!tokens.length) return null;
+  const ops = [];
+  let i = 0;
+  let command = null;
+  let x = 0, y = 0, sx = 0, sy = 0;
+  const take = () => {
+    const token = tokens[i++];
+    if (token == null || /^[MLCQZ]$/.test(token)) throw new Error('outline-path-arity');
+    const value = Number(token);
+    if (!Number.isFinite(value)) throw new Error('outline-path-number');
+    return value;
+  };
+  try {
+    while (i < tokens.length) {
+      if (/^[MLCQZ]$/.test(tokens[i])) command = tokens[i++];
+      else if (command == null) return null;
+      if (command === 'M') {
+        x = take(); y = take(); sx = x; sy = y;
+        ops.push(`${round2(x)} ${round2(y)} m`);
+        command = 'L'; // SVG implicit coordinate pairs after moveto are lineto.
+      } else if (command === 'L') {
+        x = take(); y = take();
+        ops.push(`${round2(x)} ${round2(y)} l`);
+      } else if (command === 'Q') {
+        const cx = take(), cy = take(), ex = take(), ey = take();
+        const c1x = x + (2 / 3) * (cx - x);
+        const c1y = y + (2 / 3) * (cy - y);
+        const c2x = ex + (2 / 3) * (cx - ex);
+        const c2y = ey + (2 / 3) * (cy - ey);
+        ops.push(`${round2(c1x)} ${round2(c1y)} ${round2(c2x)} ${round2(c2y)} ${round2(ex)} ${round2(ey)} c`);
+        x = ex; y = ey;
+      } else if (command === 'C') {
+        const c1x = take(), c1y = take(), c2x = take(), c2y = take(), ex = take(), ey = take();
+        ops.push(`${round2(c1x)} ${round2(c1y)} ${round2(c2x)} ${round2(c2y)} ${round2(ex)} ${round2(ey)} c`);
+        x = ex; y = ey;
+      } else if (command === 'Z') {
+        ops.push('h'); x = sx; y = sy; command = null;
+      } else {
+        return null;
+      }
+    }
+  } catch (_) {
+    return null;
+  }
+  return ops;
+}
+
+function visualShapedRunOrder(entries) {
+  const out = entries.slice();
+  const levels = out.map(entry => {
+    const level = entry.run && entry.run.shaping ? entry.run.shaping.bidiLevel : 0;
+    return Number.isSafeInteger(level) ? level : 0;
+  });
+  const odd = levels.filter(level => level % 2 === 1);
+  if (!odd.length) return out;
+  const maxLevel = Math.max(...levels);
+  const minOdd = Math.min(...odd);
+  for (let level = maxLevel; level >= minOdd; level--) {
+    let start = 0;
+    while (start < out.length) {
+      while (start < out.length && levels[start] < level) start++;
+      if (start >= out.length) break;
+      let end = start + 1;
+      while (end < out.length && levels[end] >= level) end++;
+      for (let left = start, right = end - 1; left < right; left++, right--) {
+        [out[left], out[right]] = [out[right], out[left]];
+        [levels[left], levels[right]] = [levels[right], levels[left]];
+      }
+      start = end;
+    }
+  }
+  return out;
+}
+
+/** Vector-only PDF projection for a positioned PageModel word. */
+function shapedWordPdfOps(word, xPx, baselinePx, sizePt, pageHeightPt) {
+  const typography = word && word.typography;
+  if (!typography || typography.contractVersion !== 'page-word-typography-v1' ||
+      !Array.isArray(typography.segments) || !typography.segments.length ||
+      !Number.isSafeInteger(typography.glyphCount) || typography.glyphCount <= 0 ||
+      !Number.isFinite(word.w) || word.w < 0 ||
+      !Number.isFinite(sizePt) || sizePt <= 0) {
+    return { ok: false, error: 'invalid-page-word-typography' };
+  }
+  const sizePx = sizePt * (96 / 72);
+  const entries = [];
+  const naturalBySegment = new Map();
+  let totalGlyphs = 0;
+  for (const segment of typography.segments) {
+    if (!segment || !Number.isFinite(segment.advancePx) || segment.advancePx < 0 ||
+        !Array.isArray(segment.shapedRuns) || !segment.shapedRuns.length) {
+      return { ok: false, error: 'invalid-page-word-shaping-segment' };
+    }
+    let naturalAdvancePx = 0;
+    for (const run of segment.shapedRuns) {
+      if (!run || run.kind !== 'ShapedRun' || run.contractVersion !== 'shaped-run-v1' ||
+          !run.font || !Number.isSafeInteger(run.font.unitsPerEm) || run.font.unitsPerEm <= 0 ||
+          !Array.isArray(run.glyphs) || !run.glyphs.length ||
+          !run.advance || !Number.isFinite(run.advance.x)) {
+        return { ok: false, error: 'invalid-page-word-shaped-run' };
+      }
+      let runAdvance = 0;
+      for (const glyph of run.glyphs) {
+        if (!glyph || !Number.isSafeInteger(glyph.gid) || glyph.gid <= 0 ||
+            typeof glyph.outlinePath !== 'string' || glyph.outlinePath.length > 2 * 1024 * 1024 ||
+            !Number.isFinite(glyph.xAdvance) || !Number.isFinite(glyph.yAdvance) ||
+            !Number.isFinite(glyph.xOffset) || !Number.isFinite(glyph.yOffset)) {
+          return { ok: false, error: 'shaped-glyph-outline-or-position-missing' };
+        }
+        if (Math.abs(glyph.yAdvance) > 1e-7) {
+          return { ok: false, error: 'vertical-glyph-advance-not-supported' };
+        }
+        runAdvance += glyph.xAdvance;
+      }
+      if (!Number.isFinite(runAdvance) || runAdvance < 0 ||
+          Math.abs(runAdvance - run.advance.x) > 1e-7) {
+        return { ok: false, error: 'shaped-glyph-advance-mismatch' };
+      }
+      naturalAdvancePx += (runAdvance / run.font.unitsPerEm) * sizePx;
+      entries.push({ run, segment });
+      totalGlyphs += run.glyphs.length;
+    }
+    naturalBySegment.set(segment, naturalAdvancePx);
+  }
+  if (totalGlyphs !== typography.glyphCount) return { ok: false, error: 'page-word-glyph-count-mismatch' };
+  const segmentScale = new Map();
+  for (const segment of typography.segments) {
+    const natural = naturalBySegment.get(segment);
+    if (natural <= 0) {
+      if (segment.advancePx > 0) return { ok: false, error: 'zero-shaped-segment-advance' };
+      segmentScale.set(segment, 1);
+    } else {
+      segmentScale.set(segment, segment.advancePx / natural);
+    }
+  }
+  const visual = visualShapedRunOrder(entries);
+  const ops = [`/Span << /ActualText ${pdfTitleHex(word.text)} >> BDC`];
+  let penPx = 0;
+  let drawnGlyphs = 0;
+  for (const entry of visual) {
+    const run = entry.run;
+    const xScalePt = (sizePt / run.font.unitsPerEm) * segmentScale.get(entry.segment);
+    const yScalePt = sizePt / run.font.unitsPerEm;
+    for (const glyph of run.glyphs) {
+      if (glyph.outlinePath.length) {
+        const pathOps = svgOutlineToPdfOps(glyph.outlinePath);
+        if (!pathOps || !pathOps.length) return { ok: false, error: 'invalid-native-glyph-outline-path' };
+        const gxPt = xPx * PX_TO_PT + penPx * PX_TO_PT + glyph.xOffset * xScalePt;
+        const gyPt = pageHeightPt - baselinePx * PX_TO_PT + glyph.yOffset * yScalePt;
+        ops.push(`q ${round2(xScalePt)} 0 0 ${round2(yScalePt)} ${round2(gxPt)} ${round2(gyPt)} cm ${pathOps.join(' ')} f Q`);
+        drawnGlyphs++;
+      }
+      penPx += glyph.xAdvance * sizePx / run.font.unitsPerEm * segmentScale.get(entry.segment);
+    }
+  }
+  if (!drawnGlyphs) return { ok: false, error: 'page-word-has-no-visible-glyph-outline' };
+  if (Math.abs(penPx - word.w) > Math.max(1.25, word.w * 0.015)) {
+    return { ok: false, error: 'page-word-shaped-advance-does-not-match-positioned-width' };
+  }
+  ops.push('EMC');
+  return { ok: true, ops, glyphCount: totalGlyphs, drawnGlyphs };
+}
+
+/**
  * כתיבת מסמך PDF שלם.
  * @param {object} opts
  * @param {Array} opts.pages — תוצר projectPage() לכל עמוד
