@@ -65,7 +65,7 @@ function makePlan(overrides = {}) {
 }
 
 function makeFakeHarfBuzz(options = {}) {
-  const state = { blobCount: 0, faceCount: 0, fontCount: 0, shapeCount: 0, buffers: [], variations: [], scales: [] };
+  const state = { blobCount: 0, faceCount: 0, fontCount: 0, shapeCount: 0, outlineCalls: 0, buffers: [], variations: [], scales: [] };
   class Blob {
     constructor(bytes) { this.bytes = bytes; state.blobCount++; }
   }
@@ -84,6 +84,21 @@ function makeFakeHarfBuzz(options = {}) {
     setScale(x, y) { state.scales.push([x, y]); }
     setVariations(variations) { state.variations.push(variations.map((v) => ({ tag: v.tag, value: v.value }))); }
     glyphExtents(gid) { return { xBearing: gid * 2, yBearing: 700, width: 480, height: -680 }; }
+    drawGlyphOrFail(gid, drawFuncs, drawData) {
+      state.outlineCalls++;
+      drawFuncs.moveTo(gid, 0, drawData);
+      drawFuncs.lineTo(gid + 10, 0, drawData);
+      drawFuncs.quadraticTo(gid + 15, 20, gid + 20, 0, drawData);
+      drawFuncs.closePath(drawData);
+      return true;
+    }
+  }
+  class DrawFuncs {
+    setMoveToFunc(fn) { this.moveTo = fn; }
+    setLineToFunc(fn) { this.lineTo = fn; }
+    setQuadraticToFunc(fn) { this.quadraticTo = fn; }
+    setCubicToFunc(fn) { this.cubicTo = fn; }
+    setClosePathFunc(fn) { this.closePath = fn; }
   }
   class Feature { constructor(tag, value) { this.tag = tag; this.value = value; } }
   class Variation { constructor(tag, value) { this.tag = tag; this.value = value; } }
@@ -107,7 +122,7 @@ function makeFakeHarfBuzz(options = {}) {
     getGlyphPositions() { return this.positions || []; }
   }
   const hb = {
-    Blob, Face, Font, Feature, Variation, Buffer,
+    Blob, Face, Font, Feature, Variation, Buffer, DrawFuncs,
     Direction: { LTR: 4, RTL: 5 },
     ClusterLevel: { MONOTONE_CHARACTERS: 1 },
     BufferFlag: { DEFAULT: 0, BOT: 1, EOT: 2 },
@@ -186,6 +201,26 @@ describe('HarfBuzzShaper — canonical plan to immutable ShapedRun', () => {
     assertEq(fake.state.buffers[0].level, fake.hb.ClusterLevel.MONOTONE_CHARACTERS);
     assertEq(fake.state.buffers[0].flags, fake.hb.BufferFlag.BOT | fake.hb.BufferFlag.EOT);
     assertEq(run.shaping.engineVersion, '15.0.0');
+  });
+
+  it('captures exact HarfBuzz GID outlines once per font instance and glyph', () => {
+    const fake = makeFakeHarfBuzz();
+    const shaper = makeShaper(fake, makeResolver(), { includeGlyphOutlines: true });
+    const first = shaper.shapeTextItemPlan(makePlan());
+    const second = shaper.shapeTextItemPlan(makePlan());
+    const glyphs = first.shapedRuns[0].glyphs;
+    assert(glyphs.every(glyph => typeof glyph.outlinePath === 'string' && glyph.outlinePath.length > 0),
+      'every shaped GID carries its exact vector outline from HarfBuzz');
+    assert(glyphs.every(glyph => glyph.outlinePath.startsWith('M') && glyph.outlinePath.endsWith('Z')),
+      'outline commands retain move/close path boundaries');
+    assertEq(second.shapedRuns[0].glyphs.map(glyph => glyph.outlinePath),
+      glyphs.map(glyph => glyph.outlinePath),
+      'repeat shaping returns byte-identical outlines');
+    assertEq(fake.state.outlineCalls, new Set(glyphs.map(glyph => glyph.gid)).size,
+      'each unique GID outline is extracted only once for this font identity');
+    assertEq(shaper.getGlyphOutlineCacheSize(), new Set(glyphs.map(glyph => glyph.gid)).size);
+    shaper.clearFontCache();
+    assertEq(shaper.getGlyphOutlineCacheSize(), 0, 'font cache clearing also releases outline cache entries');
   });
 
   it('rejects the superseded v1 plan contract rather than silently accepting missing grapheme coverage', () => {
