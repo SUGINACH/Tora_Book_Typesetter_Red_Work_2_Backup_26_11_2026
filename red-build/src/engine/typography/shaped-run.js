@@ -223,10 +223,19 @@ function normalizeGlyphs(input, sourceRange, graphemes, direction) {
     const xOffset = requireFinite(glyph.xOffset, 'invalid-glyph-position', 'glyphs[' + index + '].xOffset');
     const yOffset = requireFinite(glyph.yOffset, 'invalid-glyph-position', 'glyphs[' + index + '].yOffset');
     const flags = glyph.flags == null ? 0 : requireInteger(glyph.flags, 0, 'invalid-glyph', 'glyphs[' + index + '].flags');
+    let outlinePath;
+    if (glyph.outlinePath != null) {
+      if (typeof glyph.outlinePath !== 'string' || glyph.outlinePath.length > 2 * 1024 * 1024 ||
+          /[^MLCQZ0-9eE+.,\-\s]/.test(glyph.outlinePath)) {
+        fail('invalid-glyph-outline', 'glyphs[' + index + '].outlinePath must be a bounded SVG path with deterministic commands');
+      }
+      outlinePath = glyph.outlinePath;
+    }
     return {
       gid, cluster, xAdvance, yAdvance, xOffset, yOffset, flags,
       controlBounds: normalizeBounds(glyph.controlBounds, 'invalid-glyph-bounds', 'glyphs[' + index + '].controlBounds'),
-      inkBounds: normalizeBounds(glyph.inkBounds, 'invalid-glyph-bounds', 'glyphs[' + index + '].inkBounds')
+      inkBounds: normalizeBounds(glyph.inkBounds, 'invalid-glyph-bounds', 'glyphs[' + index + '].inkBounds'),
+      ...(outlinePath !== undefined ? { outlinePath } : {})
     };
   });
 
