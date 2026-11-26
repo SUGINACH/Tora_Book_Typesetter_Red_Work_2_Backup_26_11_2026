@@ -21,8 +21,17 @@ function contentHashOf(model) {
     i: p.index,
     l: p.lines.map(l => {
       const text = (l.words || []).map(w => w.text).join('\u00A7');
-      // Keep the legacy canonical value exactly when no glyph sidecar is present.
-      return l.typography ? { text, typography: l.typography } : text;
+      // Keep the legacy canonical value exactly when neither line nor word
+      // glyph sidecars are present; shaped word placement is integrity-protected.
+      const wordTypography = (l.words || [])
+        .filter(word => word && word.typography)
+        .map(word => ({ text: word.text, typography: word.typography }));
+      if (!l.typography && !wordTypography.length) return text;
+      return {
+        text,
+        ...(l.typography ? { typography: l.typography } : {}),
+        ...(wordTypography.length ? { wordTypography } : {})
+      };
     }),
     fn: p.footnotes.map(n => `${n.marker || ''}§${n.text}`),
     sn: p.sideNotes.map(s => s.text)
