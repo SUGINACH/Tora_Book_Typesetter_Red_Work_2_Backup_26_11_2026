@@ -13,6 +13,8 @@ const { buildDocumentModel } = require('../../src/engine/model/document-model');
 const { createTextItemShapingPlan } = require('../../src/engine/typography/text-item-shaping-plan');
 const { isShapedRun } = require('../../src/engine/typography/shaped-run');
 const fontResolver = require('../../src/engine/typography/font-resolver');
+const { createProductionParagraphShaper } = require('../../src/engine/typography/production-paragraph-shaper');
+const { typeset } = require('../../src/engine/core/pipeline');
 
 const RED_BUILD = path.join(__dirname, '..', '..');
 const ASSET_ROOT = path.join(RED_BUILD, 'ui', 'assets', 'shaping-runtime');
@@ -168,6 +170,95 @@ describe('Production typography runtime — pinned local assets', () => {
     } finally {
       fontResolver.clearFontResolver();
     }
+  });
+
+  it('typesets through the production Worker runtime and persists authoritative glyph data into PageModel', async () => {
+    fontResolver.clearFontResolver();
+    try {
+      const fontBytes = fs.readFileSync(path.join(RED_BUILD, 'ui', 'assets', 'imud', 'fonts', 'FrankRuhlLibre-Regular.ttf'));
+      const registered = fontResolver.registerFont('Frank Ruhl Libre', fontBytes, {
+        source: 'production-paragraph-shaper-pipeline-test'
+      });
+      assert(registered.ok, 'the real body font registers in the canonical FontResolver');
+
+      const fetchState = createFetch();
+      const importState = { count: 0 };
+      const runtime = await loadProductionTypographyRuntime({
+        baseUrl: BASE_URL,
+        fetchImpl: fetchState.fetchImpl,
+        importModule: createImportModule(importState)
+      });
+      const settings = {
+        'body-font': 'Frank Ruhl Libre',
+        'body-font-size-pt': 12,
+        'body-line-height': 1.34,
+        '_engine-force-unified': true,
+        _typographyShaping: {
+          enabled: true,
+          baseDirection: 'rtl',
+          defaultFamily: 'Frank Ruhl Libre',
+          languageByScript: { Hebr: 'he' },
+          featuresByScript: {
+            Hebr: [
+              { tag: 'kern', value: 1 },
+              { tag: 'mark', value: 1 },
+              { tag: 'mkmk', value: 1 },
+              { tag: 'rlig', value: 1 }
+            ]
+          },
+          variationAxesByFontId: { [registered.fontId]: [] }
+        }
+      };
+      const result = typeset(
+        'כותרת 1 - בדיקת מנוע\nשמע ישראל מילה נוספת לבדיקת עיצוב גליפים.\n',
+        settings,
+        { typographyRuntime: runtime }
+      );
+      assert(result.pageModel && result.pageModel.schema === 'pagemodel-v1',
+        'the real typeset path must return its immutable PageModel');
+      assertEq(result.pageModelValidation.violations.length, 0,
+        'shaping sidecars must preserve all PageModel invariants');
+      const modelLines = result.pageModel.pages.flatMap(page => page.lines || []);
+      const shapedLines = modelLines.filter(line => line.typography &&
+        Array.isArray(line.typography.fragments) && line.typography.fragments.length);
+      assert(shapedLines.length > 0,
+        'pipeline-created paragraph shaping must reach PageModel line typography');
+      const shapedRuns = shapedLines.flatMap(line => line.typography.fragments)
+        .flatMap(fragment => fragment.shapingSlices.shapedRuns || []);
+      assert(shapedRuns.length > 0, 'PageModel retains immutable ShapedRuns from the Worker runtime');
+      assert(shapedRuns.every(run => isShapedRun(run) &&
+        run.glyphs.length > 0 && run.glyphs.every(glyph =>
+          Number.isSafeInteger(glyph.gid) && glyph.gid > 0 &&
+          Number.isFinite(glyph.xAdvance) && Number.isFinite(glyph.xOffset) &&
+          Number.isFinite(glyph.yOffset))),
+      'PageModel glyph records retain GID, advances and offsets');
+      assert(Object.isFrozen(result.pageModel) && Object.isFrozen(shapedRuns[0]) &&
+        Object.isFrozen(shapedRuns[0].glyphs),
+      'the PageModel transport payload remains deeply immutable');
+      assert(result.events.toJSON().some(event =>
+        event.event === 'paragraph-shaping-enabled' || event.name === 'paragraph-shaping-enabled'),
+      'the actual pipeline records the explicit shaping activation');
+    } finally {
+      fontResolver.clearFontResolver();
+    }
+  });
+
+  it('rejects an enabled shaping policy that omits a required direction or runtime config', async () => {
+    let error = null;
+    try {
+      createProductionParagraphShaper({
+        _typographyShaping: {
+          enabled: true,
+          defaultFamily: 'Frank Ruhl Libre',
+          languageByScript: { Hebr: 'he' },
+          featuresByScript: { Hebr: [] },
+          variationAxesByFontId: {}
+        }
+      }, {});
+    } catch (caught) { error = caught; }
+    assert(error instanceof Error);
+    assertEq(error.code, 'typography-runtime-required',
+      'an enabled policy cannot claim production readiness without its verified Worker runtime');
   });
 
   it('rejects a tampered WASM asset before importing or initializing HarfBuzz', async () => {
