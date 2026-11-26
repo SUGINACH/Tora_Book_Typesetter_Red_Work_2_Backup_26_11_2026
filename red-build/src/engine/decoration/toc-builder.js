@@ -454,5 +454,5 @@ function splitGeneralDetail(entries, settings = {}) {
 module.exports = {
   buildTocModel, numberRows, buildTocPages, insertTocPages, resolveTocTargets,
   buildTocEntries, splitGeneralDetail, wrapTitle, levelSizePt, levelIndentPx,
-  TOC_MAX_ROWS, TOC_MAX_PAGES, TOC_MAX_TITLE_LINES,
+  TOC_MAX_ROWS, TOC_MAX_PAGES, TOC_MAX_TITLE_LINES, DOTS_MIN_PX,
 };

@@ -22,6 +22,7 @@
  */
 
 const { buildShaarBlocks, shaarFontOf } = require('../output/shaar-content');
+const { DOTS_MIN_PX } = require('../decoration/toc-builder');
 const { GEO, TOC_FIRST_TOP, TOC_CONT_TOP, TOC_STRETCH_BOTTOM, SZ_CORE, H2_SIMAN_Y, H2_SIMAN_Y_SPAN } = require('../core/imud-geometry'); // **G3/RC-3 (i004):** H2_SIMAN_Y* — עוגן דואלי, מקור יחיד
 const { folioGeometry, headerGeometry } = require('../layout/furniture-geometry');
 const { assignFootnoteLanes } = require('../layout/footnote-lanes');
