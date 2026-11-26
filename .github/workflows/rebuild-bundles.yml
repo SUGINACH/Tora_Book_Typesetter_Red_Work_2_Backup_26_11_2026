@@ -2,6 +2,11 @@ name: rebuild-bundles
 on:
   push:
     branches: [ engine/legacy-parity-preview-20261119 ]
+# Bundle writes are serialized per branch. Keep the running build alive and
+# retain only the newest pending build so older commits cannot race to push.
+concurrency:
+  group: rebuild-bundles-${{ github.ref }}
+  cancel-in-progress: false
 permissions:
   contents: write
 jobs:
