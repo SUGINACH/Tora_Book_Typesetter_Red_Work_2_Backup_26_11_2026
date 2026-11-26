@@ -749,7 +749,8 @@ function shaarColorOfCls(cls, settings) {
 
 /** **S73:** החזרת צבע שאינו שחור (ערך כהה/חסר ⇒ null — ירושת שחור ב-CSS). */
 function nonBlack(hex) {
-  return (hex && /^#[0-9a-f]{6}$/i.test(hex) && hex.toLowerCase() !== '#000000') ? hex : null;
+  // A configured black color is explicit; only an absent/invalid value inherits.
+  return (hex && /^#[0-9a-f]{6}$/i.test(hex)) ? hex : null;
 }
 
 /**
@@ -1330,6 +1331,12 @@ function renderLegacyPage(pg, settings, doc) {
         t.textContent = scrubPUAText(rowText || '');
         row.appendChild(t);
         if (r.folio && rli === 0) {
+          // Legacy TOC uses a separate flex row rather than the generic
+          // renderTocRows helper; include its leader explicitly so live DOM
+          // and standalone HTML do not silently lose this part of the design.
+          const dots = doc.createElement('span');
+          dots.className = 'toc-dots';
+          row.appendChild(dots);
           const n = doc.createElement('span');
           n.className = 'toc-num';
           n.style.fontSize = `${pt2px(SZ.tocNum)}px`;
