@@ -61,6 +61,7 @@ function stampTocLayout(page, settings, measure) {
   const tpl = page.template;
   const imud = !!(tpl && tpl.imud);
   const layout = [];
+  const leaders = [];
 
   if (imud) {
     const first = page.toc.isFirst === true;
@@ -112,13 +113,14 @@ function stampTocLayout(page, settings, measure) {
       rowHeights.forEach(h => { rowYs.push(y); y += h; });
     }
 
-    const makeWords = (text, sizePt, family) => {
+    const makeWords = (text, sizePt, family, color) => {
       const m = family ? measureOfFamily(measure, family, settings) : measure;
       const fontKey = family ? familyFontKeyOf(family) : null;
       const words = String(text || '').split(/\s+/).filter(Boolean).map(word => ({
         text: scrubPUAText(word),
         w: m.measureTextWidth(scrubPUAText(word), sizePt, 0),
-        ...(fontKey ? { fontKey } : {})
+        ...(fontKey ? { fontKey } : {}),
+        ...(color ? { color } : {})
       }));
       return { words, spaceW: m.measureTextWidth(' ', sizePt, 0), fontKey };
     };
@@ -143,17 +145,39 @@ function stampTocLayout(page, settings, measure) {
       let y = rowY;
       lineTexts.forEach((lineText, li) => {
         const h = li === 0 ? firstLineH : 26;
-        const measured = makeWords(lineText, sizePt, family);
+        const rowColor = colorOfSetting(settings[`heading-${level}-color`] || '#000000');
+        const measured = makeWords(lineText, sizePt, family, rowColor);
         layout.push({
           x, y, w, h, words: measured.words, spaceW: measured.spaceW,
           align: 'right', kind: 'toc-row', sizePt, fontKey: measured.fontKey,
           targetPage: row.targetPage != null ? row.targetPage : null
         });
+        if (li === 0 && labelText) {
+          // The title ends at the left edge of its measured RTL word run.
+          // Reserve a dotted leader between that edge and the page-label box.
+          const titleAdvance = measured.words.reduce((sum, word) => sum + word.w, 0)
+            + Math.max(0, measured.words.length - 1) * measured.spaceW;
+          const titleLeft = x + w - titleAdvance;
+          const labelRight = GEO.TOC_NUM_X + labelW - 8;
+          const leaderX = labelRight + 6;
+          const leaderW = titleLeft - leaderX - 6;
+          if (leaderW >= DOTS_MIN_PX) {
+            leaders.push({
+              x: leaderX,
+              y: rowY + firstLineH - 4,
+              w: leaderW,
+              h: 0,
+              color: [0, 0, 0],
+              style: 'dotted'
+            });
+          }
+        }
         y += h;
       });
       if (labelText) {
         const labelSize = Number(SZ_CORE.tocNum) || 10.5;
-        const measured = makeWords(labelText, labelSize, family);
+        const labelColor = colorOfSetting('#444444');
+        const measured = makeWords(labelText, labelSize, family, labelColor);
         layout.push({
           x: GEO.TOC_NUM_X, y: rowY, w: labelW - 8, h: firstLineH,
           words: measured.words, spaceW: measured.spaceW,
@@ -175,7 +199,7 @@ function stampTocLayout(page, settings, measure) {
       };
     }
     page.tocLayout = {
-      schema: 'toc-layout-v2', rows: layout, title,
+      schema: 'toc-layout-v2', rows: layout, title, leaders,
       firstTop: top, stretchBottom: bottom, pageWidth: tpl.width
     };
     return true;
