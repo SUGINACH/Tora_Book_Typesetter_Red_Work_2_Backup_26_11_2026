@@ -213,7 +213,8 @@ describe('שלב 8 פרוסה 2 (§4.3) — חוזה העברת Worker', () => {
   });
 
   it('PageModel preserves glyph sidecars through Worker transport, hashes them, and leaves geometry unchanged', () => {
-    const r = typeset(['כותרת 1 - חלק', text + ' עולם', 'פסקת סיום.'].join('\\n'), S());
+    const fixtureText = ['כותרת 1 - חלק', 'שלום עולם, זהו מסמך קצר לצורך בדיקת שימור נתוני גליפים ב-PageModel.', 'פסקת סיום אמיתית.'].join('\n');
+    const r = typeset(fixtureText, S());
     const baselineModel = r.pageModel;
     let injected = false;
     const shapedPages = r.pages.map(page => ({
