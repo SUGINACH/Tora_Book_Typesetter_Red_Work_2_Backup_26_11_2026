@@ -407,6 +407,70 @@ function measuredVia(item, style, env) {
   return measureItem(item, style, env.ctx);
 }
 
+/**
+ * Derive each source fragment's metrics from the HarfBuzz clusters it owns.
+ * Source fragments and HarfBuzz ScriptRuns are different partitions: one
+ * fragment may contain several ScriptRuns, and one ScriptRun may cover
+ * adjacent same-font style runs. Never pair them by array index.
+ */
+function shapedFragmentMetricsOf(fragment, shapingSlices, style) {
+  if (!shapingSlices || !Array.isArray(shapingSlices.shapedRuns)) return null;
+  const start = fragment && fragment.docStart;
+  const end = fragment && fragment.docEnd;
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || end <= start) {
+    const error = new Error('A shaped source fragment requires a valid absolute UTF-16 range');
+    error.code = 'invalid-shaped-fragment-source-range';
+    throw error;
+  }
+  const sizePt = style && Number.isFinite(style.sizePt) ? style.sizePt : 12;
+  const sizePx = sizePt * (96 / 72);
+  const advanceFactor = style && Number.isFinite(style.advanceFactor) && style.advanceFactor > 0
+    ? style.advanceFactor : 1;
+  const fontIds = new Set();
+  let advancePx = 0;
+  let glyphCount = 0;
+  for (const run of shapingSlices.shapedRuns) {
+    if (!run || !run.font || !Number.isSafeInteger(run.font.unitsPerEm) || run.font.unitsPerEm <= 0 ||
+        !Array.isArray(run.glyphs)) {
+      const error = new Error('A shaped source fragment references an invalid ShapedRun');
+      error.code = 'invalid-shaped-fragment-run';
+      throw error;
+    }
+    for (const glyph of run.glyphs) {
+      if (!glyph || !Number.isSafeInteger(glyph.cluster)) {
+        const error = new Error('A ShapedGlyph requires an absolute UTF-16 cluster');
+        error.code = 'invalid-shaped-fragment-cluster';
+        throw error;
+      }
+      if (glyph.cluster < start || glyph.cluster >= end) continue;
+      if (!Number.isFinite(glyph.xAdvance)) {
+        const error = new Error('A ShapedGlyph cluster has no finite xAdvance');
+        error.code = 'invalid-shaped-fragment-advance';
+        throw error;
+      }
+      advancePx += (glyph.xAdvance / run.font.unitsPerEm) * sizePx;
+      glyphCount++;
+      fontIds.add(String(run.font.fontId));
+    }
+  }
+  if (!glyphCount) {
+    // Bidi controls are intentionally non-shaping and have zero advance.
+    const visible = String(fragment.text || '').replace(/[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '');
+    if (visible.length) {
+      const error = new Error('Visible source-fragment text has no HarfBuzz output cluster');
+      error.code = 'shaped-fragment-glyph-coverage-gap';
+      throw error;
+    }
+  }
+  const orderedFontIds = [...fontIds];
+  return {
+    fontId: orderedFontIds.length === 1 ? orderedFontIds[0] : null,
+    fontIds: orderedFontIds,
+    advancePx: advancePx * advanceFactor,
+    glyphCount
+  };
+}
+
 /** הזרמת תיבה אחת לרצף: בניית פריט-מילה קנוני + מדידה דרך measureItem היחיד.
  * הסגנון נפתר מהמיכל (baseStyle או resolveStyleFor המשותף) + שכבת-על פר-מילה. */
 function boxItemFor(b, env) {
@@ -436,16 +500,22 @@ function boxItemFor(b, env) {
       id: wordItemId, kind: 'text', payload: { runs: runsPayload },
       ...(b.word.shapingSlices ? { shapingSlices: b.word.shapingSlices } : {})
     }, measureStyle, env);
-    const fragments = b.word.fragments.map((f, k) => ({
-      itemId: wordItemId,
-      runIndex: f.runIndex,
-      text: f.text,
-      start: f.start, end: f.end,
-      docStart: f.docStart, docEnd: f.docEnd,
-      fontId: (m.ok && m.segments && m.segments[k] && m.segments[k].fontId) || null,
-      fontFamily: f.fontFamily || null,
-      advancePx: (m.ok && m.segments && m.segments[k] && m.segments[k].advancePx) || 0
-    }));
+    const fragments = b.word.fragments.map((f, k) => {
+      const shaped = b.word.shapingSlices
+        ? shapedFragmentMetricsOf(f, b.word.shapingSlices, measureStyle)
+        : null;
+      return {
+        itemId: wordItemId,
+        runIndex: f.runIndex,
+        text: f.text,
+        start: f.start, end: f.end,
+        docStart: f.docStart, docEnd: f.docEnd,
+        fontId: shaped ? shaped.fontId : ((m.ok && m.segments && m.segments[k] && m.segments[k].fontId) || null),
+        fontFamily: f.fontFamily || null,
+        advancePx: shaped ? shaped.advancePx : ((m.ok && m.segments && m.segments[k] && m.segments[k].advancePx) || 0),
+        ...(shaped && shaped.fontIds.length > 1 ? { shapedFontIds: shaped.fontIds } : {})
+      };
+    });
     return lineItemOf({
       role: 'box', kind: 'text', itemId: wordItemId, sourceItemId: src.id,
       fragments,
