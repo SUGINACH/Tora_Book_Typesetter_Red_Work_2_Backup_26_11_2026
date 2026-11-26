@@ -363,20 +363,25 @@ describe('S8F raster images — asset bytes reach PDF XObjects', () => {
     out.writeUInt32BE(crc32(body), 8 + data.length);
     return out;
   }
-  function onePixelRgbPng() {
+  function pngOf(colorType, scanline) {
     const ihdr = Buffer.alloc(13);
     ihdr.writeUInt32BE(1, 0); // width
     ihdr.writeUInt32BE(1, 4); // height
     ihdr[8] = 8; // bit depth
-    ihdr[9] = 2; // truecolor RGB, no alpha
+    ihdr[9] = colorType;
     ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
-    const scanline = Buffer.from([0, 0x22, 0x66, 0xaa]); // filter 0 + one RGB pixel
     return Buffer.concat([
       Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
       pngChunk('IHDR', ihdr),
       pngChunk('IDAT', zlib.deflateSync(scanline)),
       pngChunk('IEND', Buffer.alloc(0))
     ]);
+  }
+  function onePixelRgbPng() {
+    return pngOf(2, Buffer.from([0, 0x22, 0x66, 0xaa])); // filter 0 + one RGB pixel
+  }
+  function onePixelRgbaPng() {
+    return pngOf(6, Buffer.from([0, 0x22, 0x66, 0xaa, 0x80])); // RGB + 50% alpha
   }
 
   it('embeds verified PNG bytes and paints them at PageModel coordinates', () => {
@@ -404,6 +409,34 @@ describe('S8F raster images — asset bytes reach PDF XObjects', () => {
     assert(pdf.includes('/XObject << /Im1 '), 'page resources reference the image XObject');
     assert(pdf.includes('/Im1 Do'), 'the image is painted into the page content stream');
     assert(pdf.includes('27 0 0 18'), 'the planned 36×24px geometry is converted to points');
+  });
+
+  it('embeds RGBA PNG transparency through a PDF soft mask', () => {
+    const { S, model, fontBytes } = setup();
+    const imageModel = JSON.parse(JSON.stringify(model));
+    const page = imageModel.pages.find(p => p.type === 'regular') || imageModel.pages[0];
+    const assetId = 'ast-image-aabbccddeeff00';
+    page.images = [{
+      itemId: 'image-alpha-test', assetId, resourcePath: 'images/alpha.png',
+      x: 30, y: 45, w: 40, h: 40, resolved: true
+    }];
+    const bytes = onePixelRgbaPng();
+    const assets = {
+      resolveById(id) {
+        return id === assetId
+          ? { ok: true, asset: { bytes, measured: { format: 'png', orientation: 1 } } }
+          : { ok: false };
+      }
+    };
+    const result = exportPdfFromModel(imageModel, S, fontBytes, 'Frank Ruhl Libre', assets);
+    assert(result.ok, 'transparent PNG PDF export succeeds: ' + (result.error || ''));
+    const pdf = Buffer.from(result.bytes).toString('latin1');
+    assert(pdf.includes('/Subtype /Image /Width 1 /Height 1'), 'the color Image XObject exists');
+    assert(pdf.includes('/SMask '), 'the color Image XObject references a soft mask');
+    assert((pdf.match(/\/Subtype \/Image \/Width 1 \/Height 1/g) || []).length >= 2,
+      'both color and grayscale mask XObjects are embedded');
+    assert(pdf.includes('/ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode'),
+      'the soft mask is an 8-bit grayscale image');
   });
 
   it('fails explicitly when image bytes are unavailable instead of exporting a blank page', () => {
