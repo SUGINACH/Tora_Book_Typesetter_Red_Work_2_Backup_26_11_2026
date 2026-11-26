@@ -134,6 +134,7 @@ function createProductionParagraphShaper(settings, env = {}) {
       ? { fallbacksByFamily: copyConfigValue(config.fallbacksByFamily, 'fallbacksByFamily') }
       : {}),
     useNativeDefaults: config.useNativeDefaults === true,
+    useItemFontRole: !explicitConfig || config.useItemFontRole === true,
     shaperOptions
   });
 

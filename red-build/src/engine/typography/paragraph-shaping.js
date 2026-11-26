@@ -61,6 +61,9 @@ function createParagraphShaper(options = {}) {
   }
 
   return Object.freeze({
+    // Only product-derived policies opt into per-block font-role selection.
+    // Explicit diagnostic policies retain their own global defaultFamily.
+    useItemFontRole: options.useItemFontRole === true,
     shapeTextItem(item, request = {}) {
       if (!isRecord(request) || (request.direction !== 'ltr' && request.direction !== 'rtl')) {
         fail('paragraph-shaping-direction-required', 'Each TextItem requires an explicit paragraph direction');

@@ -223,11 +223,11 @@ function buildContainerSequence(cont, ctx = {}, opts = {}) {
     for (const item of items) {
       if (item.kind !== 'text') continue;
       const itemDefaultFamily = (env.baseStyle && env.baseStyle.family) || base.defaultFamily;
-      const shaped = ctx.paragraphShaper.shapeTextItem(item, {
-        direction: dir,
-        language: lang,
-        ...(itemDefaultFamily ? { defaultFamily: itemDefaultFamily } : {})
-      });
+      const request = { direction: dir, language: lang };
+      if (ctx.paragraphShaper.useItemFontRole === true && itemDefaultFamily) {
+        request.defaultFamily = itemDefaultFamily;
+      }
+      const shaped = ctx.paragraphShaper.shapeTextItem(item, request);
       if (!shaped || shaped.kind !== 'ShapedTextItem' || shaped.itemId !== item.id) {
         throw new TypeError('buildContainerSequence: paragraphShaper returned an invalid ShapedTextItem for ' + item.id);
       }
