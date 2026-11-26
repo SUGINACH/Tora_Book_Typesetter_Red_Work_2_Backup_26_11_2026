@@ -227,7 +227,8 @@ describe('שלב 8 פרוסה 2 (§4.3) — חוזה העברת Worker', () => {
               fragment.fragments.length !== 1 || !fragment.sourceRange ||
               !Number.isSafeInteger(fragment.sourceRange.start)) return false;
           const candidate = String(fragment.fragments[0].text || '');
-          if (candidate.length < 2 || /\p{M}/u.test(candidate) ||
+          if (candidate.length !== 4 || !/^\p{Script=Hebrew}{4}$/u.test(candidate) ||
+              /\p{M}/u.test(candidate) ||
               fragment.sourceRange.end - fragment.sourceRange.start !== candidate.length) return false;
           targetText = candidate;
           return true;
