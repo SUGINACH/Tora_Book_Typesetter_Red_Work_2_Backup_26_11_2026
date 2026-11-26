@@ -1,10 +1,12 @@
 // tests/e2e/s74-pdf-mark-advance.test.js — **S74: רגרסיית פגם הקרנת ניקוד משולב ב-PDF**
-// פרוסה 1, גרסה 2 (25.11) — התאמה מדויקת לפגם החי המתועד; בדיקת נפל לפי חוזה §1.2.
-//
-// מקור: audits/PHASE1_DOM_HTML_PDF_GLYPH_PARITY_2026-11-25.md §6-§7. הפגם החי:
-// מילת-חלון שְׁמַע (FrankReal, 18pt) — המודל/HTML מציבים בסיסים בלבד (28.79pt);
-// ה-PDF בונה את המילה תו-תו עם hmtx גולמי ומוסיף 15.76pt של ניקודים (44.57pt).
-// התיקון הנדרש ארכיטקטוני (ShapedRun→PageModel→מקרינים); השער נכשל עד אז.
+// פרוסה 1, גרסה 3 (26.11) — סביבת השער מתוקנת לפי הכרעת דין-וחשבון 26.11:
+// גרסה 2 מדדה בטעות קונפליקט סמכויות-גופן של סביבת הבדיקה (המודל נמדד במימוש-
+// טבלה של גוף לא-רשום: 3.48em×14pt=48.72pt בדיוק; ה-PDF צויר ב-FrankReal אמיתי
+// מהגופן שהוזרק לייצוא בלבד: 34.66pt) — ולא את הפגם. כעת body-font=FrankReal
+// רשום לפני ה-typeset ⇒ המודל מודד בסיסים-בלבד (font-metrics + combined) מול
+// ה-PDF שמצייר ב-hmtx גולמי — שחזור נאמן של מחלקת הפגם החי (פורנזי 25.11 §6-§7:
+// מדידה≠ציור לאותה מילה מנוקדת). התיקון: הכותב מקרין את החלטת המדידה (/W מאופס
+// לניקוד בפרופיל המאוחד; המורשת ב-hmtx מופרד כחוזה הייחוס).
 'use strict';
 
 const fs = require('fs');
@@ -61,7 +63,12 @@ function setup() {
     const e = CATALOG.find(x => x.family === f);
     if (e) registerFont(f, fs.readFileSync(path.join(FONT_DIR, e.file)));
   }
-  return getDefaultSettings();
+  // **S74 (גרסה 3 — תיקון סביבת השער):** גוף המסמך ב-FrankReal הרשום. כך
+  // המדידה רצה במימוש font-metrics עם combined (ה-pipeline קובע את הדגל על
+  // ההגדרות הפנימיות) ⇒ המודל מתכנן את שְׁמַע בבסיסים-בלבד — כמו הדפדפן
+  // (GPOS mark-to-base, advance 0). בלי זה נפלה המדידה לטבלה (גוף לא-רשום)
+  // והשער מדד קונפליקט גופנים של סביבת הבדיקה — לא את הפגם.
+  return { ...getDefaultSettings(), 'body-font': 'FrankReal' };
 }
 
 function buildDoc() {
@@ -69,7 +76,7 @@ function buildDoc() {
   return [
     'כותרת 1 - חלק',
     para,
-    ...Array.from({ length: 4 }, (_, i) => `פסקת מילוי ${i + 1} עם טקסט ממשי למילוי הטורים בנפח אמיתי ולבדיקת גיאומטריה עקבית של העמוד. ${'מילים למילוי הטור ולבדיקת יציבות הפריסה '.repeat(4)}`)
+    ...Array.from({ length: 4 }, (_, i) => `פסקת מילוי ${i + 1} עם טקסט ממשי למילוי הטורים בנפח אמיתי ולבדיקת גיאומטריה עקבת של העמוד. ${'מילים למילוי הטור ולבדיקת יציבות הפריסה '.repeat(4)}`)
   ].join('\n');
 }
 
@@ -99,6 +106,13 @@ describe('S74 — פגם הקרנת ניקוד משולב ב-PDF (FrankReal שְ
     assert(count === 1, `המילה נמצאת פעם אחת במודל (נמצאו ${count})`);
     assert(found, 'עוגן המילה קיים');
     assert(found.word && Number.isFinite(found.word.w), 'למילה במודל יש רוחב מתוכנן (w)');
+    // **S74 (גרסה 3):** המודל מדד במדדי-אמת של FrankReal הרשום עם combined —
+    // בסיסים-בלבד (סביבת השער תקינה; אם זה נכשל, המדידה נפלה לטבלה והשער
+    // חוזר למדוד קונפליקט סביבה במקום הפגם).
+    const modelWpt = found.word.w * 72 / 96;
+    const basesPt = BASE_UNITS / FRANKREAL_UPM * 14 * (96 / 72) * (72 / 96); // גוף 14pt — בסיסים בלבד
+    assertClose(modelWpt, basesPt, 0.5,
+      `סביבת השער: המודל חייב למדוד בסיסים-בלבד במדדי FrankReal (קיבלנו ${modelWpt.toFixed(3)}pt מול ${basesPt.toFixed(3)}pt) — אחרת המדידה נפלה מ-font-metrics/combined והשער מודד קונפליקט סביבה.`);
     clearRegisteredFonts();
   });
 
@@ -125,7 +139,7 @@ describe('S74 — פגם הקרנת ניקוד משולב ב-PDF (FrankReal שְ
     const sizePx = found.word.w / (BASE_UNITS / FRANKREAL_UPM);
     const markAdvancePt = MARK_UNITS * (sizePx * 72 / 96) / FRANKREAL_UPM;
     assertClose(pdfWidthPt, modelWidthPt, 0.5,
-      `פגם הקרנת ניקוד משולב ב-PDF (פורנזי §7): רוחב שְׁמַע ב-PDF=${pdfWidthPt.toFixed(3)}pt מול המודל=${modelWidthPt.toFixed(3)}pt — הפרש ${(pdfWidthPt - modelWidthPt).toFixed(3)}pt ≈ advances ניקוד גולמי (${markAdvancePt.toFixed(3)}pt). ה-PDF בונה מילים תו-תו עם hmtx גולמי במקום להקרין את מיקום המודל. תיקון שורש: ShapedRun→PageModel→מקרינים; אין לתקן במרווח/CSS/offset.`);
+      `פגם הקרנת ניקוד משולב ב-PDF (פורנזי §7): רוחב שְׁמַע ב-PDF=${pdfWidthPt.toFixed(3)}pt מול המודל=${modelWidthPt.toFixed(3)}pt — הפרש ${(pdfWidthPt - modelWidthPt).toFixed(3)}pt ≈ advances ניקוד גולמי (${markAdvancePt.toFixed(3)}pt). ה-PDF בונה מילים תו-תו עם hmtx גולמי במקום להקרין את מדידת המודל (combined). תיקון שורש: הכותב מקרין את החלטת המדידה (/W מאופס לניקוד); אין לתקן במרווח/CSS/offset.`);
     clearRegisteredFonts();
   });
 });
