@@ -4,6 +4,9 @@
 
 const SHAPED_RUN_CONTRACT_VERSION = 'shaped-run-v1';
 const CLUSTER_LEVEL = 'monotone-characters';
+// Canonical runs are deeply frozen once at construction. Internal projection paths
+// can validate them in O(1) instead of recursively re-walking every glyph per word.
+const canonicalShapedRuns = new WeakSet();
 
 function fail(code, message) {
   const error = new TypeError(message);
@@ -349,7 +352,7 @@ function createShapedRun(input) {
     };
   });
 
-  return deepFreeze({
+  const shapedRun = deepFreeze({
     kind: 'ShapedRun',
     contractVersion: SHAPED_RUN_CONTRACT_VERSION,
     id,
@@ -363,6 +366,8 @@ function createShapedRun(input) {
     advance,
     diagnostics
   });
+  canonicalShapedRuns.add(shapedRun);
+  return shapedRun;
 }
 
 /**
@@ -463,11 +468,13 @@ function isDeepFrozen(value, seen = new Set()) {
 }
 
 function isShapedRun(value) {
-  return !!(value && value.kind === 'ShapedRun' &&
-    value.contractVersion === SHAPED_RUN_CONTRACT_VERSION &&
-    isDeepFrozen(value) &&
-    Array.isArray(value.glyphs) &&
-    Array.isArray(value.clusters));
+  if (!(value && value.kind === 'ShapedRun' &&
+      value.contractVersion === SHAPED_RUN_CONTRACT_VERSION &&
+      Array.isArray(value.glyphs) &&
+      Array.isArray(value.clusters))) return false;
+  // Runs created here were fully frozen and verified at construction. External
+  // objects retain the original recursive immutability validation on first use.
+  return canonicalShapedRuns.has(value) || isDeepFrozen(value);
 }
 
 /** Only output-cluster boundaries are legal shaping/line-break slice points. */
