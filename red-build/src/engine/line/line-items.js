@@ -211,9 +211,10 @@ function buildContainerSequence(cont, ctx = {}, opts = {}) {
   const items = (cont.items || []).length ? cont.items : [];
   if (!items.length) return null;
 
-  // Experimental, opt-in paragraph shaping: shape every complete TextItem
-  // before splitTextItem creates word boxes. This sidecar never feeds
-  // MeasureAPI or changes a line-break width.
+  // Explicit paragraph shaping: shape every complete TextItem before
+  // splitTextItem creates word boxes. The resulting cluster slices are passed
+  // into measureItem; HarfBuzz xAdvance values determine measuredAdvance
+  // and therefore the actual line-break widths.
   const shapingPreview = [];
   if (ctx.paragraphShaper != null) {
     if (typeof ctx.paragraphShaper.shapeTextItem !== 'function') {
