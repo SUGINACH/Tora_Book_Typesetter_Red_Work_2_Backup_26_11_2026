@@ -862,7 +862,8 @@ function projectSideNotes(page, settings, measure, out) {
       }
     }
     const rec = projectStampedRows(sn, sn.x, boxW, sn.yTop, {
-      sizePt, fontKey: 'margin',
+      sizePt,
+      fontKey: familyFontKeyOf(sn.stampCtx && sn.stampCtx.fontName || settings['s-note-body-font']) || null,
       color: colorOfSetting(settings['s-note-body-color']), measure,
       padPx: isBox ? chrome.pad + chrome.border : 0,
       align: 'center' // **G4/RC-4d:** הערות-צד ממורכזות כמו המקור (מרזב: יישור מלא)
