@@ -34110,6 +34110,7 @@ function glyphOutlineSvgOf(wd, ml, doc) {
   }
   const sizePx = sizePt * PT_TO_PX;
   const entries = [];
+  const naturalAdvanceBySegment = new Map();
   let totalGlyphs = 0;
   for (const segment of typography.segments) {
     if (!segment || !Array.isArray(segment.shapedRuns) || !segment.shapedRuns.length ||
@@ -34141,7 +34142,7 @@ function glyphOutlineSvgOf(wd, ml, doc) {
       entries.push({ run, segment });
       totalGlyphs += run.glyphs.length;
     }
-    segment._naturalAdvancePx = naturalAdvancePx;
+    naturalAdvanceBySegment.set(segment, naturalAdvancePx);
   }
   if (!totalGlyphs || totalGlyphs !== typography.glyphCount) {
     return { svg: null, reason: 'word-glyph-count-mismatch' };
@@ -34149,7 +34150,7 @@ function glyphOutlineSvgOf(wd, ml, doc) {
 
   const segmentScale = new Map();
   for (const segment of typography.segments) {
-    const natural = segment._naturalAdvancePx;
+    const natural = naturalAdvanceBySegment.get(segment);
     if (natural <= 0) {
       if (segment.advancePx > 0) return { svg: null, reason: 'zero-natural-advance' };
       segmentScale.set(segment, 1);
