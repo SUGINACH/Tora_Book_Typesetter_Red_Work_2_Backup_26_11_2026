@@ -247,7 +247,7 @@ describe('S8F — native HarfBuzz glyph outlines in PDF', () => {
     const sizePx = sizePt * 96 / 72;
     assert(Number.isFinite(word.w) && word.w > 0 && sizePt > 0, 'the word geometry is valid');
     const xAdvance = word.w / sizePx * 1000;
-    const outlinePath = 'M0,0L1000,0L1000,700L0,700Z';
+    const outlinePath = 'M0,0L1000,0Q1200,300 1000,700C800,700 200,700 0,700Z';
     word.typography = {
       contractVersion: 'page-word-typography-v1',
       glyphCount: 1,
@@ -293,6 +293,8 @@ describe('S8F — native HarfBuzz glyph outlines in PDF', () => {
     assert(raw.includes('/ActualText <FEFF'), 'the PDF marks original Unicode text for extraction');
     assert(raw.includes(' cm ') && raw.includes(' m ') && raw.includes(' l ') && raw.includes(' f Q'),
       'the content stream contains transformed vector glyph paths, not a second text shaping operation');
+    assert((raw.match(/ c /g) || []).length >= 2,
+      'SVG quadratic and cubic outlines are both converted to PDF cubic Bézier operators');
 
     if (pdftotextAvailable()) {
       const outPath = '/tmp/s8f-shaped-word.pdf';
