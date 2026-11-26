@@ -1023,19 +1023,10 @@ function legacyTypeset(rawText, settings, env) {
   const h6Font = fontApiFor(settings['heading-6-font']) || null;
   const h7Font = fontApiFor(settings['heading-7-font']) || null;
   const headingApiFor = (lv) => (({ 0: h0Font, 1: h1Font, 2: h2Font, 3: h3Font, 4: h4Font, 5: h5Font, 6: h6Font, 7: h7Font })[lv]) || null;
-  // **S4.13 (גופן הערות-צד — כמו המקור):** הערות הצד מודפסות בגופן
-  // HadassahFriedlaender (מוכח מהייחוס: שורות השוליים sz=6 בפונט
-  // 'HadassahFriedlaender', לא GuttmanRashi). הגלישה שלהן חייבת למדוד
-  // במטריקות שלו — בגופן הגוף הרוחבים שונים והשבירה מתפצלת אחרת
-  // (נצפה: 'מכלל ימי השבת,' 47.2px בגוף מול 52.5px ב-Hadassah — הייחוס
-  // שובר אחרי 'מכלל ימי'). אם הגופן לא נרשם — נפילה שקופה לגופן הגוף.
-  let marginApi = api;
-  if (impl === 'font-metrics' && registeredMeasureFonts.has('Hadassah Friedlaender')) {
-    marginApi = new MeasureAPI(
-      { 'body-font': 'Hadassah Friedlaender', 'body-font-size-pt': SZ.marginNote, 'body-line-height': 1.2 },
-      'font-metrics'
-    );
-  }
+  // הערות-צד הן H7: אותו heading-7-font שמקרין ה-DOM. בעבר העימוד
+  // קיבע את מדידתן ל-Hadassah גם כאשר המשתמש שינה את גופן H7, ולכן
+  // שבירת השורות לא תאמה לרוחב הגופן שהוצג בפועל.
+  const marginApi = h7Font || api;
   const brk = new LineBreaker(api, cfg, windowApi, headingApi);
   const { meta, tokens } = tokenizeDoc(rawText, cfg);
 
