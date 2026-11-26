@@ -235,8 +235,7 @@ describe('Production typography runtime — pinned local assets', () => {
       assert(Object.isFrozen(result.pageModel) && Object.isFrozen(shapedRuns[0]) &&
         Object.isFrozen(shapedRuns[0].glyphs),
       'the PageModel transport payload remains deeply immutable');
-      assert(result.events.toJSON().some(event =>
-        event.event === 'paragraph-shaping-enabled' || event.name === 'paragraph-shaping-enabled'),
+      assert(result.events.events.some(event => event.label === 'paragraph-shaping-enabled'),
       'the actual pipeline records the explicit shaping activation');
     } finally {
       fontResolver.clearFontResolver();
