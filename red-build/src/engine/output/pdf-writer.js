@@ -194,50 +194,86 @@ function buildToUnicode(font) {
  * glyph lookup happens here: these are the exact GID outlines in font units.
  */
 function svgOutlineToPdfOps(pathData) {
-  if (typeof pathData !== 'string') return null;
+  if (typeof pathData !== 'string' || pathData.length > 2 * 1024 * 1024) return null;
   if (!pathData.length) return [];
-  const numberPattern = /[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/;
-  const tokenPattern = /[MLCQZ]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/g;
-  const residue = pathData.replace(/[MLCQZ]/g, '').replace(new RegExp(numberPattern.source, 'g'), '').replace(/[\s,]/g, '');
-  if (residue.length) return null;
-  const tokens = pathData.match(tokenPattern) || [];
-  if (!tokens.length) return null;
   const ops = [];
   let i = 0;
   let command = null;
   let x = 0, y = 0, sx = 0, sy = 0;
-  const take = () => {
-    const token = tokens[i++];
-    if (token == null || /^[MLCQZ]$/.test(token)) throw new Error('outline-path-arity');
-    const value = Number(token);
-    if (!Number.isFinite(value)) throw new Error('outline-path-number');
+  const isDigit = (ch) => ch >= '0' && ch <= '9';
+  const isSpace = (ch) => ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' || ch === '\f';
+  const skipSeparators = () => {
+    while (i < pathData.length && (isSpace(pathData[i]) || pathData[i] === ',')) i++;
+  };
+  const readNumber = () => {
+    skipSeparators();
+    const start = i;
+    if (pathData[i] === '+' || pathData[i] === '-') i++;
+    let integerDigits = 0;
+    while (i < pathData.length && isDigit(pathData[i])) { integerDigits++; i++; }
+    let fractionDigits = 0;
+    if (pathData[i] === '.') {
+      i++;
+      while (i < pathData.length && isDigit(pathData[i])) { fractionDigits++; i++; }
+    }
+    if (integerDigits + fractionDigits === 0) throw new Error('outline-path-number-expected');
+    if (pathData[i] === 'e' || pathData[i] === 'E') {
+      i++;
+      if (pathData[i] === '+' || pathData[i] === '-') i++;
+      let exponentDigits = 0;
+      while (i < pathData.length && isDigit(pathData[i])) { exponentDigits++; i++; }
+      if (!exponentDigits) throw new Error('outline-path-invalid-exponent');
+    }
+    const value = Number(pathData.slice(start, i));
+    if (!Number.isFinite(value)) throw new Error('outline-path-non-finite-number');
     return value;
   };
   try {
-    while (i < tokens.length) {
-      if (/^[MLCQZ]$/.test(tokens[i])) command = tokens[i++];
-      else if (command == null) return null;
+    while (i < pathData.length) {
+      skipSeparators();
+      if (i >= pathData.length) break;
+      const ch = pathData[i];
+      if (ch === 'M' || ch === 'L' || ch === 'Q' || ch === 'C' || ch === 'Z') {
+        command = ch;
+        i++;
+      } else if (command == null) {
+        return null;
+      }
+      if (command === 'Z') {
+        ops.push('h');
+        x = sx;
+        y = sy;
+        command = null;
+        continue;
+      }
       if (command === 'M') {
-        x = take(); y = take(); sx = x; sy = y;
+        x = readNumber();
+        y = readNumber();
+        sx = x;
+        sy = y;
         ops.push(`${round2(x)} ${round2(y)} m`);
-        command = 'L'; // SVG implicit coordinate pairs after moveto are lineto.
+        command = 'L'; // further coordinate pairs after moveto are lineto
       } else if (command === 'L') {
-        x = take(); y = take();
+        x = readNumber();
+        y = readNumber();
         ops.push(`${round2(x)} ${round2(y)} l`);
       } else if (command === 'Q') {
-        const cx = take(), cy = take(), ex = take(), ey = take();
+        const cx = readNumber(), cy = readNumber();
+        const ex = readNumber(), ey = readNumber();
         const c1x = x + (2 / 3) * (cx - x);
         const c1y = y + (2 / 3) * (cy - y);
         const c2x = ex + (2 / 3) * (cx - ex);
         const c2y = ey + (2 / 3) * (cy - ey);
         ops.push(`${round2(c1x)} ${round2(c1y)} ${round2(c2x)} ${round2(c2y)} ${round2(ex)} ${round2(ey)} c`);
-        x = ex; y = ey;
+        x = ex;
+        y = ey;
       } else if (command === 'C') {
-        const c1x = take(), c1y = take(), c2x = take(), c2y = take(), ex = take(), ey = take();
+        const c1x = readNumber(), c1y = readNumber();
+        const c2x = readNumber(), c2y = readNumber();
+        const ex = readNumber(), ey = readNumber();
         ops.push(`${round2(c1x)} ${round2(c1y)} ${round2(c2x)} ${round2(c2y)} ${round2(ex)} ${round2(ey)} c`);
-        x = ex; y = ey;
-      } else if (command === 'Z') {
-        ops.push('h'); x = sx; y = sy; command = null;
+        x = ex;
+        y = ey;
       } else {
         return null;
       }
@@ -245,7 +281,7 @@ function svgOutlineToPdfOps(pathData) {
   } catch (_) {
     return null;
   }
-  return ops;
+  return ops.length ? ops : null;
 }
 
 function visualShapedRunOrder(entries) {
