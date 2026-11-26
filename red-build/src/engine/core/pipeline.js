@@ -36,6 +36,7 @@ const { buildDocumentModel } = require('../model/document-model');
 const { modelToTokens } = require('../model/adapter');
 const { scanBrackets } = require('../parser/bracket-scanner');
 const { MeasureAPI, resolveMeasureImpl } = require('../typography/measure-api');
+const { createProductionParagraphShaper } = require('../typography/production-paragraph-shaper');
 const { applyDropWord } = require('../typography/dropword');
 // **שלב 4 מקטע ב׳ (הוראה §§9-10):** מסלול השורות הקנוני — הגשר המרכזי היחיד
 // (DocumentModel → LineItems → מדידה יחידה → LineModel → תצוגה נגזרת). ארבע
@@ -230,6 +231,22 @@ function typeset(rawText, settingsIn, env = {}) {
   // **S12 (REQ-LB-01 impl B):** measure-impl = table (ברירת מחדל — רציפות S1–S11) | font-metrics
   // (טבלאות אמת מגופן רשום — hmtx/cmap/kern/GPOS; registerFont מפורש, אין רשת).
   const api = new MeasureAPI(settings, resolveMeasureImpl(settings));
+  // Paragraph shaping is an explicit opt-in. The ordinary product route keeps
+  // its existing behavior until the document supplies a complete font/script
+  // policy; an enabled but incomplete policy fails loudly instead of falling
+  // back to character metrics.
+  const productionShaping = env.paragraphShaper
+    ? null : createProductionParagraphShaper(settings, env);
+  const paragraphShaper = env.paragraphShaper || (productionShaping && productionShaping.shaper) || null;
+  const paragraphDirection = env.direction || (productionShaping && productionShaping.direction) || null;
+  if (paragraphShaper) {
+    eventLog.emit('measure', 'paragraph-shaping-enabled', {
+      engine: 'harfbuzz',
+      unicodeVersion: productionShaping ? productionShaping.unicodeVersion : null,
+      harfbuzzVersion: productionShaping ? productionShaping.harfbuzzVersion : null,
+      mode: productionShaping ? 'settings-opt-in' : 'injected-service'
+    });
+  }
   // **S70 (R7-M4):** עטיפת מדידה משותפת עם סימון המימוש. פקטורי הגופן
   // (NOTE_FONT_FACTORS וכו') הם תיקון לטבלה של impl A ('table'); ב-impl B
   // ('font-metrics') המטריקות מדויקות והכפלה הייתה מנפחת רוחבים ומסיטה
@@ -358,7 +375,7 @@ function typeset(rawText, settingsIn, env = {}) {
       const hBuilt = layoutModelBlock(blockById.get(t.blockId), {
         settings, kind: 'heading', level: t.level, widthPx: wLimit,
         lineHeightPx: isH3 ? h3LineHeightPx(hSize) : api.lineHeightPx(hSize),
-        measureCtx: { assetResolver: docAssets, measure: api, ...(env.paragraphShaper ? { paragraphShaper: env.paragraphShaper } : {}) }
+        measureCtx: { assetResolver: docAssets, measure: api, ...(paragraphShaper ? { paragraphShaper, ...(paragraphDirection ? { direction: paragraphDirection } : {}) } : {}) }
       });
       const lines = hBuilt.view;
       for (const d of (hBuilt.diagnostics || [])) {
@@ -422,7 +439,7 @@ function typeset(rawText, settingsIn, env = {}) {
         settings, kind: 'paragraph', widthPx: w,
         lineHeightPx: api.lineHeightPx(null),
         runts: settings['runt-min-width-pct'],
-        measureCtx: { assetResolver: docAssets, measure: api, ...(env.paragraphShaper ? { paragraphShaper: env.paragraphShaper } : {}) }
+        measureCtx: { assetResolver: docAssets, measure: api, ...(paragraphShaper ? { paragraphShaper, ...(paragraphDirection ? { direction: paragraphDirection } : {}) } : {}) }
       });
       const lines = enBuilt.view;
       for (const d of (enBuilt.diagnostics || [])) {
@@ -498,7 +515,7 @@ function typeset(rawText, settingsIn, env = {}) {
           payload: { markerText: fnMark, noteRef: `fnstyle:${t.id}` },
           constraints: { atomic: true, participates: 'inline', splittable: 'never', bindToNeighbor: true }
         }],
-        measureCtx: { assetResolver: docAssets, measure: api, ...(env.paragraphShaper ? { paragraphShaper: env.paragraphShaper } : {}) }
+        measureCtx: { assetResolver: docAssets, measure: api, ...(paragraphShaper ? { paragraphShaper, ...(paragraphDirection ? { direction: paragraphDirection } : {}) } : {}) }
       });
       const fnLines = fnBuilt.view;
       const fnBlk = {
@@ -643,7 +660,7 @@ function typeset(rawText, settingsIn, env = {}) {
       ...(h0BaseStyle ? { baseStyle: h0BaseStyle, parenContextSizePt: h0BodySizePt } : {}),
       runts: settings['runt-min-width-pct'],
       notesByRef, customStyles,
-      measureCtx: { assetResolver: docAssets, measure: api, ...(env.paragraphShaper ? { paragraphShaper: env.paragraphShaper } : {}) },
+      measureCtx: { assetResolver: docAssets, measure: api, ...(paragraphShaper ? { paragraphShaper, ...(paragraphDirection ? { direction: paragraphDirection } : {}) } : {}) },
       ...(winSpec ? { window: winSpec } : {})
     });
     const lines = built.view;
