@@ -974,6 +974,46 @@ function customFactorMapOf(settings) {
  * רוחב הרווח מה-glue החיצוני הראשון (naturalPx — הרווח שנמדד בזמן השבירה).
  * מחזיר null כשאין LineModel/flow (שורה סינתטית) — הנפילה מדווחת ב-projectLine.
  */
+function wordTypographyOf(fragments) {
+  if (!Array.isArray(fragments)) return null;
+  const segments = [];
+  let glyphCount = 0;
+  for (const fragment of fragments) {
+    const slices = fragment && fragment.shapingSlices;
+    if (!slices || !Array.isArray(slices.shapedRuns) || !slices.shapedRuns.length) continue;
+    const count = Number.isSafeInteger(slices.glyphCount)
+      ? slices.glyphCount
+      : slices.shapedRuns.reduce((sum, run) => sum + (run.glyphs || []).length, 0);
+    if (count !== slices.shapedRuns.reduce((sum, run) => sum + (run.glyphs || []).length, 0)) {
+      materializeFallbacks.push({
+        kind: 'materialize-invalid-word-typography',
+        itemId: fragment.itemId || null
+      });
+      continue;
+    }
+    segments.push({
+      itemId: fragment.itemId || null,
+      sourceRange: fragment.sourceRange ? { ...fragment.sourceRange } : null,
+      advancePx: Number(fragment.advance) || 0,
+      shapedRuns: slices.shapedRuns,
+      glyphCount: count
+    });
+    glyphCount += count;
+  }
+  if (!segments.length) return null;
+  return {
+    contractVersion: 'page-word-typography-v1',
+    glyphCount,
+    segments
+  };
+}
+
+/**
+ * **שלב 8 (§4.1):** רוחבי מילות השורה מה-LineModel — מיפוי זהה ל-legacyViewOfLines
+ * (הליכה על ה-flow; צבירת measuredAdvance של הפרגמנטים לפי יחידות מילה), בתוספת
+ * רוחב הרווח מה-glue החיצוני הראשון (naturalPx — הרווח שנמדד בזמן השבירה).
+ * מחזיר null כשאין LineModel/flow (שורה סינתטית) — הנפילה מדווחת ב-projectLine.
+ */
 function lineWidthsFromModel(ln) {
   const lm = ln && ln.lineModel;
   if (!lm) return null;
@@ -1009,7 +1049,12 @@ function lineWidthsFromModel(ln) {
     if (!f) continue;
     const adv = Number(f.measuredAdvance) || 0;
     if (curFrags === null) curFrags = [];
-    curFrags.push({ kind: f.kind || 'text', advance: adv });
+    curFrags.push({
+      itemId: f.itemId,
+      kind: f.kind || 'text', advance: adv,
+      sourceRange: f.sourceRange || null,
+      shapingSlices: f.shapingSlices || null
+    });
     curW = curW === null ? adv : curW + adv;
   }
   flushWord();
@@ -1194,7 +1239,8 @@ function projectLine(ln, colX, y, colW, settings, measure, align, production) {
           if (f.kind === 'noteMarker' && f.advance > 0) {
             emitWord(pieces[j], f.advance, fnSizePt, { mk: true });
           } else {
-            emitWord(pieces[j], f.advance, eff, null);
+            const typography = wordTypographyOf([f]);
+            emitWord(pieces[j], f.advance, eff, typography ? { typography } : null);
           }
         }
         handled = true;
@@ -1211,14 +1257,16 @@ function projectLine(ln, colX, y, colW, settings, measure, align, production) {
         const mkTxt = sp >= 0 ? raw.slice(sp + 1) : raw;
         const txtTxt = sp >= 0 ? raw.slice(0, sp) : raw;
         cursor -= txtW;
-        emitWord(txtTxt, txtW, eff, null);
+        const typography = wordTypographyOf(frags.slice(0, -1));
+        emitWord(txtTxt, txtW, eff, typography ? { typography } : null);
         cursor -= mkW;
         emitWord(mkTxt, mkW, fnSizePt, { mk: true });
       } else {
         cursor -= widths[i];
+        const typography = wordTypographyOf(frags);
         // **S68:** סמן גודל פר-מילה רק כשהוא שונה מגודל השורה — שורות רגילות
         // (ברירת מחדל, בלי סוגריים/סגנון) נשארות בדיוק כפי שהיו (נייטרליות).
-        emitWord(words[i], widths[i], eff, null);
+        emitWord(words[i], widths[i], eff, typography ? { typography } : null);
       }
     }
     // **U-16:** רווח חי רק בין מילים ששתיהן גלויות (מילת-כיוון נבלעה בשכנה)
