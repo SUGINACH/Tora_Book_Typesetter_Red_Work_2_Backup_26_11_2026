@@ -35,6 +35,11 @@ on:
     # 03:10 UTC כל לילה — בדיקת האתר החי הפרוס (מתמשך)
     - cron: '10 3 * * *'
 
+# A newer source commit supersedes an older full-math run on this ref.
+concurrency:
+  group: full-math-audit-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # ── מצב מקומי: ה-build שבענף ──
   local:

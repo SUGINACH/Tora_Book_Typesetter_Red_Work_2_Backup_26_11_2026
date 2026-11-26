@@ -4,6 +4,13 @@ on:
     branches: [ main, UNIFIED, engine/legacy-parity-preview-20261119 ]
   pull_request:
     branches: [ main, UNIFIED ]
+
+# Only the newest validation of this branch matters; do not let stale large-corpus
+# runs consume a runner after a newer source commit has arrived.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest

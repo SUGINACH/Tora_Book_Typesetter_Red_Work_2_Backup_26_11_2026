@@ -28,7 +28,7 @@ permissions:
 
 concurrency:
   group: preview-engine-parity
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build-and-stage:
