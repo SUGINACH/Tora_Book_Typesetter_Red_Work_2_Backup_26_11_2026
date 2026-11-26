@@ -24509,11 +24509,11 @@ function base64OfBytes(value) {
 /** רישום תמונת מסמך מקומית לתצוגת DOM/HTML; המודל עצמו שומר רק ref ו-assetId. */
 function registerDocumentImage(ref, bytes) {
   if (typeof ref !== 'string' || !ref || ref.startsWith('/') ||
-      ref.includes('\\\\') || ref.split('/').some(part => !part || part === '.' || part === '..') ||
+      ref.includes('\\') || ref.split('/').some(part => !part || part === '.' || part === '..') ||
       /^[a-z][a-z0-9+.-]*:/i.test(ref)) {
     return { ok: false, code: 'invalid-document-image-ref' };
   }
-  const match = ref.match(/\\.(png|jpe?g)$/i);
+  const match = ref.match(/\.(png|jpe?g)$/i);
   if (!match) return { ok: false, code: 'unsupported-document-image-type' };
   const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
   if (!data.length) return { ok: false, code: 'empty-document-image' };
