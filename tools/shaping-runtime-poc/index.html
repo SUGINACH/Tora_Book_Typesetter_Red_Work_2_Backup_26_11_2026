@@ -23,6 +23,9 @@
         const sharedResponse = await fetch('/shared-itemization-input.json', { cache: 'no-store' });
         if (!sharedResponse.ok) throw new Error('could not fetch shared itemization input');
         const sharedItemization = await sharedResponse.json();
+        const frankReferenceResponse = await fetch('/frankreal-mark-reference.json', { cache: 'no-store' });
+        if (!frankReferenceResponse.ok) throw new Error('could not fetch exact FrankReal Node ShapedRun reference');
+        const frankRealMarkReference = await frankReferenceResponse.json();
         const worker = new Worker('/classic-worker.js', { name: 'harfbuzz-classic-worker-poc' });
         const timer = setTimeout(() => {
           worker.terminate();
@@ -39,8 +42,10 @@
           const actualJson = JSON.stringify(data.results);
           const exactMatch = actualJson === expectedJson;
           finish({
-            state: exactMatch && data.runtime && data.runtime.classicWorker && data.runtime.dynamicImport && data.runtime.bidiWasmLoaded && data.runtime.bidiUnicodeVersion === '18.0.0' && data.runtime.sharedItemizationProbePassed
+            state: exactMatch && data.runtime && data.runtime.classicWorker && data.runtime.dynamicImport && data.runtime.bidiWasmLoaded && data.runtime.bidiUnicodeVersion === '18.0.0' && data.runtime.sharedItemizationProbePassed &&
+              data.frankRealMarkProbe && data.frankRealMarkProbe.status === 'passed' && data.frankRealMarkProbe.exactNodeProductionParity === true
               ? 'passed' : 'failed',
+            frankRealMarkProbe: data.frankRealMarkProbe || null,
             classicWorker: data.runtime && data.runtime.classicWorker,
             dynamicImport: data.runtime && data.runtime.dynamicImport,
             wasmLoaded: data.runtime && data.runtime.wasmLoaded,
@@ -105,7 +110,9 @@
           moduleUrl: new URL('/harfbuzzjs/dist/index.mjs', location.href).href,
           bidiWasmUrl: new URL('/bidi-runtime.wasm', location.href).href,
           sharedItemization,
-          fonts
+          fonts,
+          frankRealMarkReference,
+          frankRealMarkFontUrl: '/fonts/FrankReal-Bold.ttf'
         });
       } catch (error) {
         finish({ state: 'failed', error: String(error && error.stack || error) });

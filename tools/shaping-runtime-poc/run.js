@@ -677,6 +677,37 @@ async function main() {
         frankRealProductionRun.glyphs.every((glyph) => Object.isFrozen(glyph)),
       complete: true
     };
+    const frankRealWorkerReference = {
+      fontName: 'FrankReal-Bold.ttf',
+      sourceHash: frankRealRegistration.record.sourceHash,
+      unitsPerEm: frankRealRegistration.record.unitsPerEm,
+      text: frankRealMarkText,
+      sourceStart: frankRealSourceStart,
+      sourceEnd: frankRealSourceStart + frankRealMarkText.length,
+      bidiLevel: frankRealPlan.scriptRuns[0].bidiLevel,
+      features: frankRealFeatures,
+      markGlyphIds: frankRealMarkGlyphIds.map((item) => item.gid),
+      graphemes: frankRealPlan.scriptRuns[0].graphemes.map((grapheme) => ({
+        text: grapheme.text,
+        start: grapheme.start,
+        end: grapheme.end
+      })),
+      glyphs: frankRealGlyphReport.map((glyph) => ({
+        gid: glyph.gid,
+        cluster: glyph.cluster,
+        relativeCluster: glyph.relativeCluster,
+        sourceRange: glyph.sourceRange,
+        xAdvance: glyph.xAdvance,
+        yAdvance: glyph.yAdvance,
+        xOffset: glyph.xOffset,
+        yOffset: glyph.yOffset
+      }))
+    };
+    fs.writeFileSync(
+      path.join(site, 'frankreal-mark-reference.json'),
+      JSON.stringify(frankRealWorkerReference),
+      'utf8'
+    );
     fontResolver.clearFontResolver();
 
     const utf16ClusterProbe = expected.find((item) => item.utf16ClusterProbe)?.utf16ClusterProbe || null;
@@ -1001,10 +1032,18 @@ async function main() {
     report.browserWorker = browserResult;
     if (browserResult.state !== 'passed' || browserResult.exactNodeParity !== true ||
         browserResult.classicWorker !== true || browserResult.dynamicImport !== true ||
-        browserResult.wasmLoaded !== true || browserResult.bidiWasmLoaded !== true || browserResult.bidiUnicodeVersion !== '18.0.0' || browserResult.sharedItemizationProbeFontCount !== sharedItemizationProbeFontCount || browserResult.sharedItemizationProbePassed !== true || browserResult.fontCount !== shapeFixtures.length) {
-      throw new Error('Classic Worker multi-font compatibility proof failed: ' +
-        JSON.stringify(browserResult).slice(0, 5000));
+        browserResult.wasmLoaded !== true || browserResult.bidiWasmLoaded !== true ||
+        browserResult.bidiUnicodeVersion !== '18.0.0' ||
+        browserResult.sharedItemizationProbeFontCount !== sharedItemizationProbeFontCount ||
+        browserResult.sharedItemizationProbePassed !== true ||
+        browserResult.fontCount !== shapeFixtures.length ||
+        !browserResult.frankRealMarkProbe ||
+        browserResult.frankRealMarkProbe.status !== 'passed' ||
+        browserResult.frankRealMarkProbe.exactNodeProductionParity !== true) {
+      throw new Error('Classic Worker multi-font/FrankReal exact compatibility proof failed: ' +
+        JSON.stringify(browserResult).slice(0, 6500));
     }
+    report.frankRealMarkProbe.classicWorkerParity = browserResult.frankRealMarkProbe;
 
     report.result = report.nodeReference.unsupportedFontCount
       ? 'passed_with_raw_woff2_limitations; normalized_sfnt_supported' : 'passed';
