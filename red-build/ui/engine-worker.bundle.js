@@ -8110,6 +8110,7 @@ function createProductionParagraphShaper(settings, env = {}) {
       ? { fallbacksByFamily: copyConfigValue(config.fallbacksByFamily, 'fallbacksByFamily') }
       : {}),
     useNativeDefaults: config.useNativeDefaults === true,
+    useItemFontRole: !explicitConfig || config.useItemFontRole === true,
     shaperOptions
   });
 
@@ -8190,6 +8191,9 @@ function createParagraphShaper(options = {}) {
   }
 
   return Object.freeze({
+    // Only product-derived policies opt into per-block font-role selection.
+    // Explicit diagnostic policies retain their own global defaultFamily.
+    useItemFontRole: options.useItemFontRole === true,
     shapeTextItem(item, request = {}) {
       if (!isRecord(request) || (request.direction !== 'ltr' && request.direction !== 'rtl')) {
         fail('paragraph-shaping-direction-required', 'Each TextItem requires an explicit paragraph direction');
@@ -10146,11 +10150,11 @@ function buildContainerSequence(cont, ctx = {}, opts = {}) {
     for (const item of items) {
       if (item.kind !== 'text') continue;
       const itemDefaultFamily = (env.baseStyle && env.baseStyle.family) || base.defaultFamily;
-      const shaped = ctx.paragraphShaper.shapeTextItem(item, {
-        direction: dir,
-        language: lang,
-        ...(itemDefaultFamily ? { defaultFamily: itemDefaultFamily } : {})
-      });
+      const request = { direction: dir, language: lang };
+      if (ctx.paragraphShaper.useItemFontRole === true && itemDefaultFamily) {
+        request.defaultFamily = itemDefaultFamily;
+      }
+      const shaped = ctx.paragraphShaper.shapeTextItem(item, request);
       if (!shaped || shaped.kind !== 'ShapedTextItem' || shaped.itemId !== item.id) {
         throw new TypeError('buildContainerSequence: paragraphShaper returned an invalid ShapedTextItem for ' + item.id);
       }
