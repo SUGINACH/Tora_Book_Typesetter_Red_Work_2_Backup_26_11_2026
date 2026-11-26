@@ -250,12 +250,12 @@ describe('S8F — native HarfBuzz glyph outlines in PDF', () => {
     const outlinePath = 'M0,0L1000,0Q1200,300 1000,700C800,700 200,700 0,700Z';
     word.typography = {
       contractVersion: 'page-word-typography-v1',
-      glyphCount: 1,
+      glyphCount: 2,
       segments: [{
         itemId: 's8f-vector-word',
         sourceRange: { start: 0, end: word.text.length },
         advancePx: word.w,
-        glyphCount: 1,
+        glyphCount: 2,
         shapedRuns: [{
           kind: 'ShapedRun',
           contractVersion: 'shaped-run-v1',
@@ -269,16 +269,10 @@ describe('S8F — native HarfBuzz glyph outlines in PDF', () => {
             unitsPerEm: 1000
           },
           shaping: { engine: 'harfbuzz', direction: 'rtl', bidiLevel: 1 },
-          glyphs: [{
-            gid: 31,
-            cluster: 0,
-            xAdvance,
-            yAdvance: 0,
-            xOffset: 0,
-            yOffset: 0,
-            flags: 0,
-            outlinePath
-          }],
+          glyphs: [
+            { gid: 32, cluster: 1, xAdvance: xAdvance / 2, yAdvance: 0, xOffset: 0, yOffset: 0, flags: 0, outlinePath },
+            { gid: 31, cluster: 0, xAdvance: xAdvance / 2, yAdvance: 0, xOffset: 0, yOffset: 0, flags: 0, outlinePath: 'M100,0L600,0L600,700Z' }
+          ],
           advance: { x: xAdvance, y: 0 }
         }]
       }]
@@ -287,14 +281,20 @@ describe('S8F — native HarfBuzz glyph outlines in PDF', () => {
     const result = exportPdfFromModel(shapedModel, S, fontBytes, 'Frank Ruhl Libre');
     assert(result.ok, 'PDF vector export succeeds: ' + (result.error || ''));
     assertEq(result.info.shapedWords, 1, 'one shaped word was projected');
-    assertEq(result.info.shapedGlyphs, 1, 'one ShapedGlyph was retained');
-    assertEq(result.info.outlinedGlyphs, 1, 'the glyph outline was emitted');
+    assertEq(result.info.shapedGlyphs, 2, 'both ShapedGlyph records were retained');
+    assertEq(result.info.outlinedGlyphs, 2, 'both glyph outlines were emitted');
     const raw = Buffer.from(result.bytes).toString('latin1');
     assert(raw.includes('/ActualText <FEFF'), 'the PDF marks original Unicode text for extraction');
     assert(raw.includes(' cm ') && raw.includes(' m ') && raw.includes(' l ') && raw.includes(' f Q'),
       'the content stream contains transformed vector glyph paths, not a second text shaping operation');
     assert((raw.match(/ c /g) || []).length >= 2,
       'SVG quadratic and cubic outlines are both converted to PDF cubic Bézier operators');
+    const actualTextAt = raw.indexOf('/ActualText <FEFF');
+    const actualTextEnd = raw.indexOf('EMC', actualTextAt);
+    const actualTextOps = actualTextAt >= 0 && actualTextEnd > actualTextAt ? raw.slice(actualTextAt, actualTextEnd) : '';
+    const glyphX = [...actualTextOps.matchAll(/q [0-9.eE+-]+ 0 0 [0-9.eE+-]+ ([0-9.eE+-]+) [0-9.eE+-]+ cm/g)].map(match => Number(match[1]));
+    assertEq(glyphX.length, 2, 'two vector glyph placement matrices are emitted in the ActualText span');
+    assert(glyphX[0] > glyphX[1], 'RTL HarfBuzz glyphs are placed from the right edge toward the left');
 
     if (pdftotextAvailable()) {
       const outPath = '/tmp/s8f-shaped-word.pdf';
