@@ -123,8 +123,9 @@ function placeSideNotes(pages, settings, measureFn, hooks = {}) {
       const noteFontName = isInfoBox
         ? (settings['s-note-body-font'] || settings['body-font'] || null)
         : (settings['heading-7-font'] || settings['s-note-body-font'] || settings['body-font'] || null);
-      const noteMeasure = !isInfoBox && typeof hooks.heading7Measure === 'function'
-        ? hooks.heading7Measure : measureFn;
+      const noteMeasure = isInfoBox
+        ? (typeof hooks.infoBoxMeasure === 'function' ? hooks.infoBoxMeasure : measureFn)
+        : (typeof hooks.heading7Measure === 'function' ? hooks.heading7Measure : measureFn);
       if (!stampIsValid(sn) || !sn.stampCtx || sn.stampCtx.fontName !== noteFontName) {
         stampNote(sn, settings, noteMeasure, NOTE_KINDS.SIDE_NOTE, {
           widthPx: sn.boxSpec && sn.boxSpec.widthPx ? sn.boxSpec.widthPx : undefined,
