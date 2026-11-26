@@ -432,7 +432,10 @@ function boxItemFor(b, env) {
     const wordItemId = `${src.id}#w@${docStart}-${docEnd}`;
     const runsPayload = b.word.fragments.map((f) => ({ text: f.text, fontFamily: f.fontFamily || (style && style.family) || undefined }));
     const measureStyle = wordStyleFor(style, b.word.fragments);
-    const m = measuredVia({ id: wordItemId, kind: 'text', payload: { runs: runsPayload } }, measureStyle, env);
+    const m = measuredVia({
+      id: wordItemId, kind: 'text', payload: { runs: runsPayload },
+      ...(b.word.shapingSlices ? { shapingSlices: b.word.shapingSlices } : {})
+    }, measureStyle, env);
     const fragments = b.word.fragments.map((f, k) => ({
       itemId: wordItemId,
       runIndex: f.runIndex,
