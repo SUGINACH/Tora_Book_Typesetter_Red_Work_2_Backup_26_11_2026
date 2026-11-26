@@ -20,7 +20,7 @@ function contentHashOf(model) {
   const canon = model.pages.map(p => ({
     i: p.index,
     l: p.lines.map(l => {
-      const text = (l.words || []).map(w => w.text).join('\\u00A7');
+      const text = (l.words || []).map(w => w.text).join('\u00A7');
       // Keep the legacy canonical value exactly when no glyph sidecar is present.
       return l.typography ? { text, typography: l.typography } : text;
     }),
