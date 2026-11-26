@@ -67,7 +67,11 @@ function makeDoc() {
     }
     scrollIntoView() { this._scrolled = true; }
   }
-  return { createElement: (t) => new El(t), createTextNode: (t) => { const e = new El('#text'); e._text = String(t); return e; } };
+  return {
+    createElement: (t) => new El(t),
+    createElementNS: (_namespace, t) => new El(t),
+    createTextNode: (t) => { const e = new El('#text'); e._text = String(t); return e; }
+  };
 }
 const px = (v) => Number(String(v).replace(/px$/, ''));
 
@@ -637,6 +641,123 @@ describe('S8D-2 — יישור כותרת אחיד במודל וב-DOM', () => {
       assertEq(domLine.style.textAlign, 'center', `DOM alignment ${line.id}`);
       assert(domLine.classList.contains('line--heading'), `DOM semantic heading class ${line.id}`);
     }
+  });
+});
+
+describe('S8D — native HarfBuzz glyph outline projection', () => {
+  it('draws exact ShapedGlyph outlines from immutable positioned-word PageModel data', () => {
+    const { r, S } = buildRich();
+    const sourcePage = r.pageModel.pages.find(page =>
+      (page.lines || []).some(line => line.area === 'column' &&
+        (line.words || []).some(word => typeof word.text === 'string' && word.text.length > 0)));
+    assert(sourcePage, 'the real PageModel fixture contains a positioned body word');
+    const page = JSON.parse(JSON.stringify(sourcePage));
+    const line = page.lines.find(item => item.area === 'column' &&
+      (item.words || []).some(word => typeof word.text === 'string' && word.text.length > 0));
+    const word = line.words.find(item => typeof item.text === 'string' && item.text.length > 0);
+    const sizePt = Number(word.sizePt != null ? word.sizePt : (line.sizePt || S['body-font-size-pt']));
+    const sizePx = sizePt * 96 / 72;
+    assert(Number.isFinite(word.w) && word.w > 0 && Number.isFinite(sizePx) && sizePx > 0,
+      'the real positioned word has a positive width and font size');
+    const xAdvance = word.w / sizePx * 1000;
+    const outlinePath = 'M0,0L1000,0L1000,700L0,700Z';
+    word.typography = {
+      contractVersion: 'page-word-typography-v1',
+      glyphCount: 1,
+      segments: [{
+        itemId: 's8d-native-outline-word',
+        sourceRange: { start: 0, end: word.text.length },
+        advancePx: word.w,
+        glyphCount: 1,
+        shapedRuns: [{
+          kind: 'ShapedRun',
+          contractVersion: 'shaped-run-v1',
+          id: 's8d-native-outline-run',
+          text: word.text,
+          sourceRange: { coordinateSpace: 'document-utf16', start: 0, end: word.text.length },
+          font: {
+            fontId: 'fnt-s8d-outline-fixture',
+            sourceHash: 'a'.repeat(64),
+            unitsPerEm: 1000,
+            faceIndex: 0
+          },
+          shaping: { engine: 'harfbuzz', bidiLevel: 1, direction: 'rtl' },
+          glyphs: [{
+            gid: 17, cluster: 0, xAdvance, yAdvance: 0, xOffset: 0, yOffset: 0,
+            flags: 0, outlinePath
+          }],
+          advance: { x: xAdvance, y: 0 }
+        }]
+      }]
+    };
+
+    const freezeDeep = value => {
+      if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
+      for (const key of Object.keys(value)) freezeDeep(value[key]);
+      return Object.freeze(value);
+    };
+    freezeDeep(page);
+    const diagnostics = [];
+    const pageEl = renderModelPage(page, S, makeDoc(), {
+      onDiagnostic: diagnostic => diagnostics.push(diagnostic)
+    });
+    const wordSpan = collectByClass(pageEl, 'w--glyph-outline')
+      .find(span => span.dataset.glyphOutline === 'harfbuzz');
+    assert(wordSpan, 'positioned word uses the HarfBuzz SVG outline renderer');
+    assertEq(wordSpan.dataset.glyphCount, '1', 'exact shaped glyph count is exposed');
+    assertEq(wordSpan.getAttribute('aria-label'), word.text, 'accessible word label is preserved');
+    assertEq(wordSpan.textContent, word.text, 'copy/search text remains exact');
+    const svg = wordSpan.children.find(child => child.tagName === 'SVG');
+    assert(svg, 'an inline SVG is attached to the positioned word');
+    const path = svg.children.find(child => child.tagName === 'PATH');
+    assert(path, 'the HarfBuzz outline is drawn as a native SVG path');
+    assertEq(path.getAttribute('d'), outlinePath, 'the original outline path is preserved byte-for-byte');
+    assert(path.getAttribute('transform').includes('scale('), 'glyph font-unit transform is explicit');
+    assert(!diagnostics.some(item => item.kind === 'pmr-glyph-outline-fallback'),
+      'no browser-text fallback occurred for a valid native outline');
+    assertEq(word.x, line.words.find(item => item.text === word.text).x,
+      'the renderer did not mutate the immutable PageModel word position');
+  });
+
+  it('reports a missing native outline and falls back to Unicode text explicitly', () => {
+    const { r, S } = buildRich();
+    const sourcePage = r.pageModel.pages.find(page =>
+      (page.lines || []).some(line => line.area === 'column' &&
+        (line.words || []).some(word => typeof word.text === 'string' && word.text.length > 0)));
+    const page = JSON.parse(JSON.stringify(sourcePage));
+    const line = page.lines.find(item => item.area === 'column' &&
+      (item.words || []).some(word => typeof word.text === 'string' && word.text.length > 0));
+    const word = line.words.find(item => typeof item.text === 'string' && item.text.length > 0);
+    const sizePt = Number(word.sizePt != null ? word.sizePt : (line.sizePt || S['body-font-size-pt']));
+    const xAdvance = word.w / (sizePt * 96 / 72) * 1000;
+    word.typography = {
+      contractVersion: 'page-word-typography-v1',
+      glyphCount: 1,
+      segments: [{
+        itemId: 's8d-missing-outline-word',
+        sourceRange: { start: 0, end: word.text.length },
+        advancePx: word.w,
+        glyphCount: 1,
+        shapedRuns: [{
+          kind: 'ShapedRun', contractVersion: 'shaped-run-v1',
+          font: { fontId: 'fnt-s8d-outline-fixture', sourceHash: 'a'.repeat(64), unitsPerEm: 1000 },
+          shaping: { bidiLevel: 1, direction: 'rtl' },
+          glyphs: [{ gid: 17, cluster: 0, xAdvance, xOffset: 0, yOffset: 0 }],
+          advance: { x: xAdvance, y: 0 }
+        }]
+      }]
+    };
+    const diagnostics = [];
+    const pageEl = renderModelPage(page, S, makeDoc(), {
+      onDiagnostic: diagnostic => diagnostics.push(diagnostic)
+    });
+    const wordSpan = collectByClass(pageEl, 'w')
+      .find(span => span.dataset.glyphOutlineFallback === 'native-glyph-outline-or-position-missing');
+    assert(wordSpan, 'the incomplete native outline is identified on the affected word');
+    assertEq(wordSpan.textContent, word.text, 'Unicode fallback preserves the complete word');
+    assert(diagnostics.some(item => item.kind === 'pmr-glyph-outline-fallback' &&
+      item.reason === 'native-glyph-outline-or-position-missing'),
+    'the renderer reports a visible, structured fallback diagnostic');
   });
 });
 
