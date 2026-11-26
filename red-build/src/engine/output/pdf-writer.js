@@ -505,7 +505,16 @@ function writePdf(opts) {
     };
     // **D-89 (צבע פר-מילה):** rgb 0..1 על המילה (כותרת עליונה בכחול-הייחוס
     // #0F1749, בלוקי השער האחורי) — ברירת מחדל שחור (0 0 0 rg מרומז ב-PDF).
-    const emitWord = (text, xPx, yPx, sizePt, fontKey, color) => {
+    const emitWord = (text, xPx, yPx, sizePt, fontKey, color, modelWord = null) => {
+      // Shaped words are emitted from their exact HarfBuzz GID outlines.
+      // ActualText preserves extraction/copy; no second bidi or font shaping.
+      if (modelWord && modelWord.typography) {
+        const shaped = shapedWordPdfOps(modelWord, xPx, yPx, sizePt, hPt);
+        if (!shaped.ok) throw new Error('pdf-glyph-outline:' + shaped.error);
+        emitFill(color);
+        ops.push(...shaped.ops);
+        return;
+      }
       // **S4.15:** מילת-חלון בגופן המשני (FrankReal-Bold) — כמו המקור;
       // **S4.26:** כותרות בגופן השלישי (DavidLibre-Bold — כמו הייחוס);
       // **S4.26 (פיצול גליפים):** תווים שחסרים בגוף הראשי (פיסוק בסיסי
@@ -582,7 +591,7 @@ function writePdf(opts) {
         // **S12 (parity):** בסיס השורה מהמקרן (מודל תיבת שורה CSS — half-leading+ascent)
         const baselineY = ln.baselineY != null ? ln.baselineY : ln.y + ln.h - ln.sizePt * (96 / 72) * 0.78;
         // **S4.9 (legacy IMUD):** מילים עם גודל/בסיס משלהן (מילת-חלון 1.5×, סמני הערות)
-        for (const w of ln.words) emitWord(w.text, w.x, w.baselineY != null ? w.baselineY : baselineY, w.sizePt || ln.sizePt, w.fontKey, w.color);
+        for (const w of ln.words) emitWord(w.text, w.x, w.baselineY != null ? w.baselineY : baselineY, w.sizePt || ln.sizePt, w.fontKey, w.color, w);
       }
     };
     if (pg.spanning) emitLines(pg.spanning.lines);
@@ -593,7 +602,7 @@ function writePdf(opts) {
         // **D-89 (דיווח משתמש: "בהערות השוליים יש מילים אחת על השניה"):**
         // בסיס פר-מילה מהמקרן (פר-שורה) — בעבר baselineY אחד לכל ההערה
         // וכל שורות הערה רבת-שורות נערמו זו על זו.
-        for (const w of fn.words) emitWord(w.text, w.x, w.baselineY != null ? w.baselineY : fn.baselineY, w.sizePt || 8.5, w.fontKey, w.color);
+        for (const w of fn.words) emitWord(w.text, w.x, w.baselineY != null ? w.baselineY : fn.baselineY, w.sizePt || 8.5, w.fontKey, w.color, w);
         continue;
       }
       const fs = 11;
@@ -625,7 +634,7 @@ function writePdf(opts) {
         // **D-89:** סלוט legacy עם מילים ממוקמות מהמקרן — בסיס/צבע פר-מילה;
         // נפילה לנוסחה הישנה רק כשאין מילים (נתיב DP).
         if (s.words && s.words.length) {
-          for (const w of s.words) emitWord(w.text, w.x, w.baselineY != null ? w.baselineY : y, w.sizePt || s.sizePt || 9, w.fontKey, w.color);
+          for (const w of s.words) emitWord(w.text, w.x, w.baselineY != null ? w.baselineY : y, w.sizePt || s.sizePt || 9, w.fontKey, w.color, w);
           continue;
         }
         // **Iteration-003 (תצוגה=ייצוא):** הסלוט המוטבע נושא fontKey (גופן
