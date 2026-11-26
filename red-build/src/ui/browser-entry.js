@@ -143,6 +143,7 @@ function boot() {
     imudLibrary: imud,
     onRequestTxtImport: () => pickFile('.txt,text/plain', (text) => app.onDocumentAction('import-txt', text)),
     onRequestDocxImport: () => pickBinaryFile('.docx', (bytes, name) => app.importDocxFile(bytes, name)), // **S11**
+    onRequestImageImport: () => pickBinaryFile('.png,image/png,.jpg,.jpeg,image/jpeg', (bytes, name) => app.importImageFile(bytes, name)),
     onRequestExtensionsImport: () => pickFile('.json,application/json', (json) => app.extensions.importFromText(json, 'הרחבות.json')), // **S11**
     onSaveExtensions: (json) => downloadJson('tora-extensions.json', json), // **S11**
     onSaveTemplate: (json) => downloadJson('settings-template.json', json),

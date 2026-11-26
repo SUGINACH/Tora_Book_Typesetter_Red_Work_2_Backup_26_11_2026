@@ -27,6 +27,8 @@ const { WorkerEngineClient, RESTART_ERROR } = require('./worker-client');
 const { classifyChange, getDebounceMs, policyTable } = require('./retypeset-policy');
 const { receivePageModel } = require('./page-model-transport'); // **שלב 8 פרוסה 2 (§4.3):** קליטת PageModel מעבר לגבול ה-Worker
 const { buildCaretMap } = require('./caret-map');
+const { AssetResolver } = require('../engine/assets/asset-resolver');
+const { registerDocumentImage, clearDocumentImages } = require('../engine/decoration/asset-registry');
 
 const TABS = [
   { id: 'editor', label: '✍️ עורך' },
@@ -58,6 +60,10 @@ function readSavedSplitPct() {
 
 function createApp(doc, opts = {}) {
   const settings = getDefaultSettings();
+  // Same verified document resolver feeds Worker measurement/export and the
+  // local data-URI registry feeds the PageModel DOM/standalone HTML renderers.
+  const documentAssets = opts.documentAssets || new AssetResolver();
+  let nextDocumentImageId = 1;
   // **ענף preview לצורך parity (engine/legacy-parity-preview-20261119):** הענף
   // מפעיל את המנוע המאוחד בנתיב ה־UI/Worker האמיתי — דגל in-band שזורם עם
   // ההגדרות לאותה נקודת dispatch אחת ב־pipeline (בלי מנגנון מקבילי). ב־main
@@ -166,6 +172,7 @@ function createApp(doc, opts = {}) {
     onDocumentAction: (action, payload) => onDocumentAction(action, payload),
     onImportTxt: () => opts.onRequestTxtImport && opts.onRequestTxtImport(),
     onImportDocx: () => opts.onRequestDocxImport && opts.onRequestDocxImport(),
+    onImportImage: () => opts.onRequestImageImport && opts.onRequestImageImport(),
     onClearDocument: () => onDocumentAction('clear', ''),
     onCaretMove: (charIndex) => onCaretMove(charIndex),
     onJumpToPage: (pageIndex) => { switchTab('preview'); preview.scrollToPage(pageIndex); },
@@ -462,6 +469,7 @@ function createApp(doc, opts = {}) {
       const started = perf.now();
       const req = engine.requestTypeset({
         text, settings,
+        assets: documentAssets,
         onProgress: (m) => status.setEngineState('working', m) // "עמוד X מתוך Y"
       });
       const jobId = req && req.jobId ? req.jobId : null; // **S1-ה/U-2:** מזהה הריצה לתצוגה
@@ -531,6 +539,9 @@ function createApp(doc, opts = {}) {
   /** פעולות מסמך מפורשות — הדבקה / ייבוא TXT / פתיחה. פעולה שלמה ⇒ עימוד מיידי. */
   function onDocumentAction(action, payload) {
     if (action === 'clear') {
+      documentAssets.clear();
+      clearDocumentImages();
+      nextDocumentImageId = 1;
       // **S6.0 (R8-M1 — ספר רפאים):** ביטול עימוד ממריץ לפני הניקוי —
       // בעבר תוצאה שהגיעה אחרי הניקוי "החייתה" את המסמך שנמחק (עמודים
       // מוצגים מול עורך ריק; ייצוא רץ על טקסט ריק).
@@ -551,6 +562,11 @@ function createApp(doc, opts = {}) {
       return;
     }
     if (action === 'paste' || action === 'import-txt' || action === 'open') {
+      if (action === 'import-txt' || action === 'open') {
+        documentAssets.clear();
+        clearDocumentImages();
+        nextDocumentImageId = 1;
+      }
       text = String(payload != null ? payload : '');
       editor.setText(text);
       onExplicitRetypeset(); // פעולת מסמך מפורשת — נתיב מיידי (progress מוצג)
@@ -638,6 +654,41 @@ function createApp(doc, opts = {}) {
   }
 
   // ================= S11: ייבוא DOCX + החלת המלצות =================
+
+  /** ייבוא תמונת PNG/JPEG: בתים מאומתים נרשמים ב-resolver ומוכנסים במיקום הסמן. */
+  function importImageFile(bytes, fileName) {
+    const name = String(fileName || 'image.png');
+    const extMatch = name.match(/\\.([a-z0-9]+)$/i);
+    const ext = extMatch ? extMatch[1].toLowerCase() : '';
+    if (!['png', 'jpg', 'jpeg'].includes(ext)) {
+      status.setNotice('ייבוא תמונה נכשל: נתמכים PNG, JPG ו-JPEG בלבד.');
+      return { ok: false, error: 'unsupported-image-extension' };
+    }
+    const base = name.replace(/\\.[^.]+$/, '').replace(/[^\\p{L}\\p{N}._-]+/gu, '_').replace(/^\\.+|\\.+$/g, '').slice(0, 64) || 'image';
+    const resourcePath = `images/${nextDocumentImageId++}-${base}.${ext}`;
+    const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+    const added = documentAssets.addBytes(resourcePath, data, { source: 'user-import', fileName: name });
+    if (!added.ok || !added.asset || !added.asset.measured || !added.asset.measured.ok) {
+      const reason = added.code || (added.asset && added.asset.measured && added.asset.measured.code) || 'invalid-image';
+      status.setNotice('ייבוא התמונה נכשל: הקובץ אינו תמונת PNG/JPEG תקינה (' + reason + ').');
+      return { ok: false, error: reason };
+    }
+    const expectedFormat = ext === 'png' ? 'png' : 'jpeg';
+    if (added.asset.measured.format !== expectedFormat) {
+      status.setNotice('ייבוא התמונה נכשל: סיומת הקובץ אינה תואמת לתוכן הבינארי.');
+      return { ok: false, error: 'image-extension-content-mismatch' };
+    }
+    const registered = registerDocumentImage(resourcePath, data);
+    if (!registered.ok) {
+      status.setNotice('ייבוא התמונה נכשל: לא ניתן לרשום את משאב התצוגה (' + registered.code + ').');
+      return { ok: false, error: registered.code };
+    }
+    const marker = `#${resourcePath}#`;
+    editor.insertTextAtSelection(marker);
+    onExplicitRetypeset();
+    status.setNotice(`התמונה «${name}» הוכנסה למסמך ונרשמה למנוע.`);
+    return { ok: true, resourcePath, assetId: added.assetId };
+  }
 
   /** ייבוא קובץ DOCX (בתים) — המרה במקור היחיד; סירוב פורמט = הודעה עברית בלי קריסה (חוק 14). */
   function importDocxFile(bytes, fileName) {
@@ -1020,7 +1071,7 @@ function createApp(doc, opts = {}) {
     onExplicitRetypeset, onDocumentAction, onSettingChanged, onResetField,
     onCancelTypeset, // **S1-ה/U-1:** נתיב ביטול מפורש (לבדיקות/אבחון)
     scheduleLightRefresh, activateFinding, saveTemplateJson, loadTemplateJson, buildDebugJson,
-    importDocxFile, applyRecommendation, // **S11:** ייבוא DOCX + החלת המלצות
+    importDocxFile, importImageFile, applyRecommendation, documentAssets, // ייבוא תמונות + DOCX והחלת המלצות
     exportRequest: onExportRequest, // **S12:** ייצוא (html/pdf/zip) — קריאה בלבד
     refreshFontCatalog: (families) => settingsPanel.refreshFontCatalog && settingsPanel.refreshFontCatalog(families), // **03.11**
     imudLibrary: opts.imudLibrary || null, // **03.11:** ספריית IMUD לניפוי/הרחבות

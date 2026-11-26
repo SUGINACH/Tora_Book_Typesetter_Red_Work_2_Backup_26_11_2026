@@ -59,11 +59,16 @@ function buildEditorTab(doc, opts) {
   btnDocx.setAttribute('aria-label', 'ייבוא מסמך וורד');
   btnDocx.title = 'ייבוא DOCX: כותרות וורד → כותרות המנוע; הערות וורד → הערות סוגריים; פסקאות → טקסט';
   btnDocx.addEventListener('click', () => opts.onImportDocx && opts.onImportDocx()); // **S11:** נפתח — המנוע נבנה
+  const btnImage = doc.createElement('button');
+  btnImage.type = 'button'; btnImage.className = 'btn'; btnImage.textContent = '🖼 הוספת תמונה';
+  btnImage.setAttribute('aria-label', 'הוספת תמונת PNG או JPEG למסמך');
+  btnImage.title = 'הוספת PNG/JPEG במקום הסמן; המנוע ישמור את הנכס וימדוד אותו מתוך הבתים';
+  btnImage.addEventListener('click', () => opts.onImportImage && opts.onImportImage());
   const btnClear = doc.createElement('button');
   btnClear.type = 'button'; btnClear.className = 'btn btn--ghost'; btnClear.textContent = '🗑 נקה';
   btnClear.setAttribute('aria-label', 'ניקוי העורך');
   btnClear.addEventListener('click', () => opts.onClearDocument && opts.onClearDocument());
-  bar.appendChild(btnTxt); bar.appendChild(btnDocx); bar.appendChild(btnClear);
+  bar.appendChild(btnTxt); bar.appendChild(btnDocx); bar.appendChild(btnImage); bar.appendChild(btnClear);
   root.appendChild(bar);
 
   // ---- מונים (תווים/מילים/שורות/פסקאות) — חי ----
@@ -146,8 +151,23 @@ function buildEditorTab(doc, opts) {
   }
   function getText() { return area.value; } // מקור נקי — סמנים אינם חלק ממנו (F-01)
 
+  /** הכנסת סמן/טקסט במיקום הסמן בלי להחליף את המסמך כולו. */
+  function insertTextAtSelection(value) {
+    const insert = String(value == null ? '' : value);
+    const start = Number.isInteger(area.selectionStart) ? area.selectionStart : area.value.length;
+    const end = Number.isInteger(area.selectionEnd) ? area.selectionEnd : start;
+    area.value = area.value.slice(0, start) + insert + area.value.slice(end);
+    const caret = start + insert.length;
+    if (area.setSelectionRange) area.setSelectionRange(caret, caret);
+    else area.selectionStart = area.selectionEnd = caret;
+    updateCounters();
+    if (opts.onTextChange) opts.onTextChange(area.value);
+    fireCaret();
+    return { start, end, caret, text: area.value };
+  }
+
   setText('');
-  return { root, setText, getText, setPageBreaks, updateCounters, setCaret, textarea: area, docxButton: btnDocx,
+  return { root, setText, getText, insertTextAtSelection, setPageBreaks, updateCounters, setCaret, textarea: area, docxButton: btnDocx, imageButton: btnImage,
     generateFixedButton: btnGenFixed, generateRandomButton: btnGenRandom };
 }
 
