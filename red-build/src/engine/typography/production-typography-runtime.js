@@ -37,8 +37,8 @@ const EXPECTED_FILES = Object.freeze({
     sha256: '92200c5035787f530332dcf547b22fceace4d18ee9253995f213d49c09143cb4'
   }),
   'unicode18-bidi-runtime.js': Object.freeze({
-    bytes: 37186,
-    sha256: '580685c67ffbadf68900ae152253ca9a9e1616a32d8a1864b306967d928009dc'
+    bytes: 37811,
+    sha256: 'f8561105050e81113492a10cd30c77ed210b37f8a4ca42fb72fad82f648a81ff'
   }),
   'unicode18-bidi-runtime.wasm': Object.freeze({
     bytes: 151361,
