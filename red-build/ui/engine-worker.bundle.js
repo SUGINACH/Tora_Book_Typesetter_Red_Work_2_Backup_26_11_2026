@@ -35609,9 +35609,9 @@ function buildToUnicode(font) {
 function svgOutlineToPdfOps(pathData) {
   if (typeof pathData !== 'string') return null;
   if (!pathData.length) return [];
-  const numberPattern = /[-+]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][-+]?\\d+)?/;
-  const tokenPattern = /[MLCQZ]|[-+]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][-+]?\\d+)?/g;
-  const residue = pathData.replace(/[MLCQZ]/g, '').replace(new RegExp(numberPattern.source, 'g'), '').replace(/[\\s,]/g, '');
+  const numberPattern = /[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/;
+  const tokenPattern = /[MLCQZ]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/g;
+  const residue = pathData.replace(/[MLCQZ]/g, '').replace(new RegExp(numberPattern.source, 'g'), '').replace(/[\s,]/g, '');
   if (residue.length) return null;
   const tokens = pathData.match(tokenPattern) || [];
   if (!tokens.length) return null;
