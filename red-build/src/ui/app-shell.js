@@ -658,13 +658,13 @@ function createApp(doc, opts = {}) {
   /** ייבוא תמונת PNG/JPEG: בתים מאומתים נרשמים ב-resolver ומוכנסים במיקום הסמן. */
   function importImageFile(bytes, fileName) {
     const name = String(fileName || 'image.png');
-    const extMatch = name.match(/\\.([a-z0-9]+)$/i);
+    const extMatch = name.match(/\.([a-z0-9]+)$/i);
     const ext = extMatch ? extMatch[1].toLowerCase() : '';
     if (!['png', 'jpg', 'jpeg'].includes(ext)) {
       status.setNotice('ייבוא תמונה נכשל: נתמכים PNG, JPG ו-JPEG בלבד.');
       return { ok: false, error: 'unsupported-image-extension' };
     }
-    const base = name.replace(/\\.[^.]+$/, '').replace(/[^\\p{L}\\p{N}._-]+/gu, '_').replace(/^\\.+|\\.+$/g, '').slice(0, 64) || 'image';
+    const base = name.replace(/\.[^.]+$/, '').replace(/[^\p{L}\p{N}._-]+/gu, '_').replace(/^\.+|\.+$/g, '').slice(0, 64) || 'image';
     const resourcePath = `images/${nextDocumentImageId++}-${base}.${ext}`;
     const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
     const added = documentAssets.addBytes(resourcePath, data, { source: 'user-import', fileName: name });
