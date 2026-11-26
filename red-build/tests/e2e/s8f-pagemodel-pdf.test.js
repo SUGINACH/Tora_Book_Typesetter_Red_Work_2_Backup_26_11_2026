@@ -232,4 +232,110 @@ describe('S8F-4 פרוסה 5 — זרימת Worker: הייצוא מהמודל ש
   }, { timeout: 120_000 });
 });
 
+describe('S8F — native HarfBuzz glyph outlines in PDF', () => {
+  it('draws positioned GID outlines and preserves the original Unicode word with ActualText', () => {
+    const { S, model, fontBytes } = setup();
+    const shapedModel = JSON.parse(JSON.stringify(model));
+    const page = shapedModel.pages.find(item =>
+      (item.lines || []).some(line => line.area === 'column' &&
+        (line.words || []).some(word => typeof word.text === 'string' && word.text.length)));
+    assert(page, 'the PDF fixture has a positioned body word');
+    const line = page.lines.find(item => item.area === 'column' &&
+      (item.words || []).some(word => typeof word.text === 'string' && word.text.length));
+    const word = line.words.find(item => typeof item.text === 'string' && item.text.length);
+    const sizePt = Number(word.sizePt != null ? word.sizePt : (line.sizePt || S['body-font-size-pt']));
+    const sizePx = sizePt * 96 / 72;
+    assert(Number.isFinite(word.w) && word.w > 0 && sizePt > 0, 'the word geometry is valid');
+    const xAdvance = word.w / sizePx * 1000;
+    const outlinePath = 'M0,0L1000,0L1000,700L0,700Z';
+    word.typography = {
+      contractVersion: 'page-word-typography-v1',
+      glyphCount: 1,
+      segments: [{
+        itemId: 's8f-vector-word',
+        sourceRange: { start: 0, end: word.text.length },
+        advancePx: word.w,
+        glyphCount: 1,
+        shapedRuns: [{
+          kind: 'ShapedRun',
+          contractVersion: 'shaped-run-v1',
+          id: 's8f-vector-run',
+          text: word.text,
+          sourceRange: { coordinateSpace: 'document-utf16', start: 0, end: word.text.length },
+          font: {
+            fontId: 'fnt-s8f-vector-fixture',
+            sourceHash: 'b'.repeat(64),
+            faceIndex: 0,
+            unitsPerEm: 1000
+          },
+          shaping: { engine: 'harfbuzz', direction: 'rtl', bidiLevel: 1 },
+          glyphs: [{
+            gid: 31,
+            cluster: 0,
+            xAdvance,
+            yAdvance: 0,
+            xOffset: 0,
+            yOffset: 0,
+            flags: 0,
+            outlinePath
+          }],
+          advance: { x: xAdvance, y: 0 }
+        }]
+      }]
+    };
+
+    const result = exportPdfFromModel(shapedModel, S, fontBytes, 'Frank Ruhl Libre');
+    assert(result.ok, 'PDF vector export succeeds: ' + (result.error || ''));
+    assertEq(result.info.shapedWords, 1, 'one shaped word was projected');
+    assertEq(result.info.shapedGlyphs, 1, 'one ShapedGlyph was retained');
+    assertEq(result.info.outlinedGlyphs, 1, 'the glyph outline was emitted');
+    const raw = Buffer.from(result.bytes).toString('latin1');
+    assert(raw.includes('/ActualText <FEFF'), 'the PDF marks original Unicode text for extraction');
+    assert(raw.includes(' cm ') && raw.includes(' m ') && raw.includes(' l ') && raw.includes(' f Q'),
+      'the content stream contains transformed vector glyph paths, not a second text shaping operation');
+
+    if (pdftotextAvailable()) {
+      const outPath = '/tmp/s8f-shaped-word.pdf';
+      fs.writeFileSync(outPath, Buffer.from(result.bytes));
+      const extracted = execFileSync('pdftotext', [outPath, '-'], { encoding: 'utf8' });
+      assert(extracted.includes(word.text),
+        'pdftotext extracts the original Unicode word through ActualText');
+    }
+  });
+
+  it('refuses a PageModel shaped word that lacks a native outline', () => {
+    const { S, model, fontBytes } = setup();
+    const invalidModel = JSON.parse(JSON.stringify(model));
+    const page = invalidModel.pages.find(item =>
+      (item.lines || []).some(line => line.area === 'column' &&
+        (line.words || []).some(word => typeof word.text === 'string' && word.text.length)));
+    const line = page.lines.find(item => item.area === 'column' &&
+      (item.words || []).some(word => typeof word.text === 'string' && word.text.length));
+    const word = line.words.find(item => typeof item.text === 'string' && item.text.length);
+    const sizePt = Number(word.sizePt != null ? word.sizePt : (line.sizePt || S['body-font-size-pt']));
+    const xAdvance = word.w / (sizePt * 96 / 72) * 1000;
+    word.typography = {
+      contractVersion: 'page-word-typography-v1',
+      glyphCount: 1,
+      segments: [{
+        itemId: 's8f-missing-outline',
+        sourceRange: { start: 0, end: word.text.length },
+        advancePx: word.w,
+        glyphCount: 1,
+        shapedRuns: [{
+          kind: 'ShapedRun', contractVersion: 'shaped-run-v1',
+          font: { fontId: 'fnt-s8f-vector-fixture', sourceHash: 'b'.repeat(64), unitsPerEm: 1000 },
+          shaping: { direction: 'rtl', bidiLevel: 1 },
+          glyphs: [{ gid: 31, cluster: 0, xAdvance, xOffset: 0, yOffset: 0, yAdvance: 0 }],
+          advance: { x: xAdvance, y: 0 }
+        }]
+      }]
+    };
+    const result = exportPdfFromModel(invalidModel, S, fontBytes, 'Frank Ruhl Libre');
+    assertEq(result.ok, false, 'missing native outline blocks the PDF export');
+    assert(String(result.error).startsWith('glyph-outline-required:shaped-glyph-outline-missing'),
+      'the failure identifies the missing outline rather than silently drawing Unicode text');
+  });
+});
+
 report('s8f-pagemodel-pdf');
