@@ -32,9 +32,11 @@ function copyConfigValue(value, path) {
 }
 
 /**
- * Resolve only an explicit document-level opt-in into the canonical shaper.
- * No product defaults or fallback chains are inferred: all font, script,
- * direction, variation and fallback policy must be supplied by the document.
+ * Resolve the explicit document-level opt-in into the one canonical paragraph
+ * shaper used by line-items. No default is inferred: language/features,
+ * variation axes, fallback order, base direction and default font must all be
+ * present in the supplied config. This prevents an apparently enabled engine
+ * from quietly inventing typography policy.
  *
  * settings._typographyShaping:
  * {
@@ -45,19 +47,46 @@ function copyConfigValue(value, path) {
  *   featuresByScript: { Hebr: [{tag:"kern",value:1}, ...], ... },
  *   variationAxesByFontId: { "fnt-...": [] | [{tag:"wght",value:...}], ... },
  *   faceIndexByFontId?: { "fnt-...": 0, ... },
- *   fallbacksByFamily?: { "Family": ["Fallback A", ...] }
+ *   fallbacksByFamily?: { "Family": ["Fallback A", ...], ... }
  * }
  */
+function buildProductShapingPolicy(settings, env) {
+  const bodyFamily = settings && typeof settings['body-font'] === 'string'
+    ? settings['body-font'].trim() : '';
+  if (!bodyFamily) {
+    fail('production-shaping-default-font-unavailable',
+      'Automatic production shaping requires the product body-font setting');
+  }
+  const fallbacksByFamily = Object.create(null);
+  for (const [key, value] of Object.entries(settings || {})) {
+    if (!key.endsWith('-font') || typeof value !== 'string') continue;
+    const family = value.trim();
+    if (family && family !== bodyFamily) fallbacksByFamily[family] = [bodyFamily];
+  }
+  return {
+    enabled: true,
+    baseDirection: env && (env.direction === 'ltr' || env.direction === 'rtl')
+      ? env.direction : 'rtl',
+    defaultFamily: bodyFamily,
+    languageByScript: { Hebr: 'he', Latn: 'en' },
+    // Empty arrays preserve HarfBuzz's standard OpenType default feature set.
+    featuresByScript: { Hebr: [], Latn: [] },
+    // Static fonts use []; variable fonts use their actual fvar defaults.
+    variationAxesByFontId: Object.create(null),
+    fallbacksByFamily,
+    useNativeDefaults: true
+  };
+}
+
 function createProductionParagraphShaper(settings, env = {}) {
   const explicitConfig = settings && settings._typographyShaping;
   if (explicitConfig != null && !isRecord(explicitConfig)) {
     fail('invalid-typography-shaping-config', 'settings._typographyShaping must be a plain object');
   }
-  // Runtime availability alone never enables shaping. It is staged separately
-  // from production font normalization and line-edge BOT/EOT integration.
-  if (explicitConfig == null || explicitConfig.enabled !== true) return null;
-  const config = explicitConfig;
   const runtime = env.typographyRuntime;
+  if (explicitConfig == null && !runtime) return null;
+  if (explicitConfig && explicitConfig.enabled !== true) return null;
+  const config = explicitConfig || buildProductShapingPolicy(settings || {}, env);
 
   if (!runtime || !runtime.unicode || !runtime.harfbuzz ||
       typeof runtime.createShaper !== 'function') {
@@ -105,7 +134,7 @@ function createProductionParagraphShaper(settings, env = {}) {
       ? { fallbacksByFamily: copyConfigValue(config.fallbacksByFamily, 'fallbacksByFamily') }
       : {}),
     useNativeDefaults: config.useNativeDefaults === true,
-    useItemFontRole: config.useItemFontRole === true,
+    useItemFontRole: !explicitConfig || config.useItemFontRole === true,
     shaperOptions
   });
 
@@ -116,7 +145,7 @@ function createProductionParagraphShaper(settings, env = {}) {
     unicodeVersion: runtime.unicode.unicodeVersion,
     harfbuzzVersion: typeof runtime.harfbuzz.versionString === 'function'
       ? runtime.harfbuzz.versionString() : null,
-    policySource: 'explicit-settings'
+    policySource: explicitConfig ? 'explicit-settings' : 'product-defaults'
   });
 }
 module.exports = { createProductionParagraphShaper };
