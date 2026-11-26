@@ -138,6 +138,25 @@ function projectPage(page, settings, apiOrOpts) {
       for (const row of page.tocLayout.rows) {
         out.lines.push(stampedRowLine(row, row.sizePt || page.tocLayout.sizePt || 12, row.kind || 'toc-row', row.fontKey));
       }
+      // Dotted leaders are structural TOC ink: planned with the same row
+      // geometry, then projected to DOM and PDF from this single model.
+      for (const leader of (page.tocLayout.leaders || [])) {
+        const pxToPt = 72 / 96;
+        const yPt = out.height * pxToPt - leader.y * pxToPt;
+        const xPt = leader.x * pxToPt;
+        const wPt = leader.w * pxToPt;
+        const pdfOps = [
+          `0 0 0 RG 0.75 w [1 1.5] 0 d ${Math.round(xPt * 100) / 100} ${Math.round(yPt * 100) / 100} m ${Math.round((xPt + wPt) * 100) / 100} ${Math.round(yPt * 100) / 100} l S [] 0 d`
+        ];
+        if (!out.decorations) out.decorations = [];
+        out.decorations.push({
+          x: leader.x, y: leader.y, w: leader.w, h: 0,
+          kind: 'toc-leader', slot: 'toc', kindStyle: 'dotted',
+          inkType: 'rule',
+          ink: { type: 'rule', style: 'dotted', color: leader.color || [0, 0, 0], width: 0.75 },
+          pdfOps
+        });
+      }
     } else {
       materializeFallbacks.push({ kind: 'materialize-fallback-toc-stamp', page: page.index });
       if (!production) { // **§3.1:** compat בלבד; בייצור — diagnostic מזוהה, אין השחזור/מדידה
@@ -1389,7 +1408,11 @@ function stampedRowLine(row, pt, kind, fontKey) {
   let cursor = align === 'center' ? row.x + (row.w + totalWordsWidth) / 2 : row.x + row.w;
   for (const wd of words) {
     cursor -= wd.w;
-    wordPos.push({ text: wd.text, x: cursor, w: wd.w, sizePt: pt, ...(fontKey ? { fontKey } : {}) });
+    wordPos.push({
+      text: wd.text, x: cursor, w: wd.w, sizePt: pt,
+      ...(fontKey ? { fontKey } : {}),
+      ...(wd.color != null ? { color: wd.color } : {})
+    });
     cursor -= (row.spaceW || 0);
   }
   return { x: row.x, y: row.y, w: row.w, h: row.h, words: wordPos, align, kind: kind || 'toc-row', level: null, isLast: false, sizePt: pt, bold: row.bold === true, baselineY: null, tokenId: null };
