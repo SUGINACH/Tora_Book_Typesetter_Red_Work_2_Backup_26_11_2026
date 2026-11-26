@@ -417,14 +417,15 @@ function projectLegacyPage(pg, settings, api, winApi, headingApi = null, fnApi =
   // הוחלף בהגדרה עם ברירת מחדל שחורה — בקשת משתמש מפורשת). בלי ערך —
   // שחור (אפס אופרטורי rg).
   const mnColor = headingColorOf(7);
+  const mnFamily = settings['heading-7-font'] || 'Hadassah Friedlaender';
+  const mnFontKey = fontKeyOf(mnFamily);
   for (const mn of (pg.marginNotes || [])) {
     const x = mn.side === 'right' ? GEO.MARGIN_R_X : GEO.MARGIN_L_X;
     for (const l of mn.lines) {
       const baseY = baselineOf(l.y, GEO.MN_PITCH, SZ.marginNote, ascent, descent);
-      // **S5.1:** הערות-צד בגופן המקור (Hadassah Friedlaender — כמו המדידה
-      // במנוע וכמו ה-DOM); עד כאן צוירו בגוף הטקסט — התצוגה ≠ הייצוא בגופנים.
+      // PDF measurement and font identity follow the same H7 family as DOM.
       const words = placeWords(l.text.split(' '), mnApi, x, GEO.MARGIN_W, SZ.marginNote, 'center', baseY);
-      for (const w of words) { w.fontKey = 'margin'; if (mnColor) w.color = mnColor; }
+      for (const w of words) { if (mnFontKey) w.fontKey = mnFontKey; if (mnColor) w.color = mnColor; }
       out.lines.push({
         x, y: l.y, w: GEO.MARGIN_W, h: GEO.MN_PITCH, words, align: 'center',
         kind: 'margin-note', level: null, isLast: false, sizePt: SZ.marginNote,
@@ -772,9 +773,10 @@ function projectLegacyDocument(result, settings) {
   if (impl === 'font-metrics' && registeredFonts.has('Frank Ruhl Libre')) {
     fnMarkApi = new MeasureAPI({ 'body-font': 'Frank Ruhl Libre', 'body-font-size-pt': SZ.fnBody, 'body-line-height': 1.5 }, 'font-metrics');
   }
+  const mnFamily = settings['heading-7-font'] || 'Hadassah Friedlaender';
   let mnApi = null;
-  if (impl === 'font-metrics' && registeredFonts.has('Hadassah Friedlaender')) {
-    mnApi = new MeasureAPI({ 'body-font': 'Hadassah Friedlaender', 'body-font-size-pt': SZ.marginNote, 'body-line-height': 1.2 }, 'font-metrics');
+  if (impl === 'font-metrics' && registeredFonts.has(mnFamily)) {
+    mnApi = new MeasureAPI({ 'body-font': mnFamily, 'body-font-size-pt': SZ.marginNote, 'body-line-height': 1.2 }, 'font-metrics');
   }
   const fnOpts = { bodyKey: fnBodyKey, markApi: fnMarkApi };
   const pages = result.pages.map(p => projectLegacyPage(p, settings, api, winApi, headingApi, fnApi, mnApi, fnOpts));
