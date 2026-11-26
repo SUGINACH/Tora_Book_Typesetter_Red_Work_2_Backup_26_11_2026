@@ -287,7 +287,8 @@ describe('S5.4 (P-5) ג — הערות-צד ומפריד טורים בהקרנה
     for (const l of sideLines) {
       assertNoOverlap(l.words, 'הערת צד');
       for (const w of l.words) {
-        assert(w.x >= l.x - 0.5 && w.x + w.w <= l.x + l.w + 0.75, `מילת הערת-צד "${w.text}" בתוך העמודה`);
+        assert(w.x >= l.x - 0.5 && w.x + w.w <= l.x + l.w + 0.75,
+          `מילת הערת-צד "${w.text}" בתוך העמודה: x=${w.x}, width=${w.w}, bounds=[${l.x}, ${l.x + l.w}], lineY=${l.y}, sizePt=${w.sizePt}`);
       }
     }
   });
