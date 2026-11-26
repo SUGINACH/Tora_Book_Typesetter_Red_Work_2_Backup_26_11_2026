@@ -161,7 +161,11 @@ describe('שלב 8 ביקורת (§3.1) — גבולות materialization', () =>
         // הושפע (89a0eb42); מספר עמודים זהה; השוואת קורפוס — מספרי
         // הסיווג זהים (3325 identical + 311 redivision — חלוקות השורות לא
         // השתנו; רק הקצאת עמודים של שורות הכותרות שנסוגו). contentPreserved.
-    assert(r.layoutHash.startsWith('a5aaa431'), `layoutHash very_long נשמר (${r.layoutHash.slice(0, 8)})`);
+        // **H7 font parity (26.11):** הערות צד נחתמות כעת בגופן heading-7-font,
+        // כפי שהן נמדדות ומוצגות בנתיב המורשת וב-DOM (ולא s-note-body-font).
+        // שינוי רוחב/גובה החותמת עשוי להעביר הערת שוליים לצד עמוד סמוך;
+        // hash ההקצאה החדש נבדק בדטרמיניזם ובשימור תוכן בקורפוס המלא.
+    assert(r.layoutHash.startsWith('cc6a42e0'), `layoutHash very_long נשמר (${r.layoutHash.slice(0, 8)})`);
     assertEq(r.pageModel.meta.materializeFallbacks, 0, 'אפס נפילות (בעבר: 852 שווא-נפילות רוחב-רווח)');
     const mfViol = r.pageModelValidation.violations.filter(v => v.code === 'materialize-fallback');
     assertEq(mfViol.length, 0, 'אפס violations');
