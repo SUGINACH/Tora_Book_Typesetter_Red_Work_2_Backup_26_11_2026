@@ -663,12 +663,12 @@ describe('S8D — native HarfBuzz glyph outline projection', () => {
     const outlinePath = 'M0,0L1000,0L1000,700L0,700Z';
     word.typography = {
       contractVersion: 'page-word-typography-v1',
-      glyphCount: 1,
+      glyphCount: 2,
       segments: [{
         itemId: 's8d-native-outline-word',
         sourceRange: { start: 0, end: word.text.length },
         advancePx: word.w,
-        glyphCount: 1,
+        glyphCount: 2,
         shapedRuns: [{
           kind: 'ShapedRun',
           contractVersion: 'shaped-run-v1',
@@ -682,10 +682,10 @@ describe('S8D — native HarfBuzz glyph outline projection', () => {
             faceIndex: 0
           },
           shaping: { engine: 'harfbuzz', bidiLevel: 1, direction: 'rtl' },
-          glyphs: [{
-            gid: 17, cluster: 0, xAdvance, yAdvance: 0, xOffset: 0, yOffset: 0,
-            flags: 0, outlinePath
-          }],
+          glyphs: [
+            { gid: 18, cluster: 1, xAdvance: xAdvance / 2, yAdvance: 0, xOffset: 0, yOffset: 0, flags: 0, outlinePath },
+            { gid: 17, cluster: 0, xAdvance: xAdvance / 2, yAdvance: 0, xOffset: 0, yOffset: 0, flags: 0, outlinePath: 'M100,0L600,0L600,700Z' }
+          ],
           advance: { x: xAdvance, y: 0 }
         }]
       }]
@@ -704,15 +704,17 @@ describe('S8D — native HarfBuzz glyph outline projection', () => {
     const wordSpan = collectByClass(pageEl, 'w--glyph-outline')
       .find(span => span.dataset.glyphOutline === 'harfbuzz');
     assert(wordSpan, 'positioned word uses the HarfBuzz SVG outline renderer');
-    assertEq(wordSpan.dataset.glyphCount, '1', 'exact shaped glyph count is exposed');
+    assertEq(wordSpan.dataset.glyphCount, '2', 'exact shaped glyph count is exposed');
     assertEq(wordSpan.getAttribute('aria-label'), word.text, 'accessible word label is preserved');
     assertEq(wordSpan.textContent, word.text, 'copy/search text remains exact');
     const svg = wordSpan.children.find(child => child.tagName === 'SVG');
     assert(svg, 'an inline SVG is attached to the positioned word');
-    const path = svg.children.find(child => child.tagName === 'PATH');
-    assert(path, 'the HarfBuzz outline is drawn as a native SVG path');
-    assertEq(path.getAttribute('d'), outlinePath, 'the original outline path is preserved byte-for-byte');
-    assert(path.getAttribute('transform').includes('scale('), 'glyph font-unit transform is explicit');
+    const paths = svg.children.filter(child => child.tagName === 'PATH');
+    assertEq(paths.length, 2, 'both HarfBuzz glyph outlines are drawn as native SVG paths');
+    assertEq(paths[0].getAttribute('d'), outlinePath, 'the first original outline path is preserved byte-for-byte');
+    assert(paths.every(path => path.getAttribute('transform').includes('scale(')), 'glyph font-unit transforms are explicit');
+    const glyphX = paths.map(path => Number(path.getAttribute('transform').split('(')[1].split(' ')[0]));
+    assert(glyphX[0] > glyphX[1], 'RTL HarfBuzz visual-order glyphs are placed from the right edge toward the left');
     assert(!diagnostics.some(item => item.kind === 'pmr-glyph-outline-fallback'),
       'no browser-text fallback occurred for a valid native outline');
     assertEq(word.x, line.words.find(item => item.text === word.text).x,
