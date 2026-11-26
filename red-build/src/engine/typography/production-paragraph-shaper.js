@@ -77,6 +77,17 @@ function createProductionParagraphShaper(settings, env = {}) {
     }
   }
 
+  const shaperOptions = config.shaperOptions == null
+    ? Object.create(null)
+    : copyConfigValue(config.shaperOptions, 'shaperOptions');
+  if (config.includeGlyphOutlines === true) shaperOptions.includeGlyphOutlines = true;
+  if (config.maxOutlineCacheEntries != null) {
+    if (!Number.isSafeInteger(config.maxOutlineCacheEntries) || config.maxOutlineCacheEntries < 1) {
+      fail('invalid-typography-shaping-config', 'maxOutlineCacheEntries must be a positive safe integer');
+    }
+    shaperOptions.maxOutlineCacheEntries = config.maxOutlineCacheEntries;
+  }
+
   const shaper = createParagraphShaper({
     runtime,
     fontResolver,
@@ -90,9 +101,7 @@ function createProductionParagraphShaper(settings, env = {}) {
     ...(config.fallbacksByFamily != null
       ? { fallbacksByFamily: copyConfigValue(config.fallbacksByFamily, 'fallbacksByFamily') }
       : {}),
-    ...(config.shaperOptions != null
-      ? { shaperOptions: copyConfigValue(config.shaperOptions, 'shaperOptions') }
-      : {})
+    shaperOptions
   });
 
   return Object.freeze({
