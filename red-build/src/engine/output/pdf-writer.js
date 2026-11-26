@@ -176,7 +176,6 @@ function splitPngAlpha(filtered, width, height, colorType) {
   }
   return {
     colorBytes: zlibStored(colorRows),
-    alphaBytes: zlibStored(alphaRows),
     smask: {
       width, height, colorSpace: '/DeviceGray', bitsPerComponent: 8,
       filter: '/FlateDecode',
