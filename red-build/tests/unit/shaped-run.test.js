@@ -151,6 +151,71 @@ describe('ShapedRun v1 — source mapping, cluster safety and immutability', () 
     assertEq(safe.clusters[0].graphemeEnd - safe.clusters[0].graphemeStart, 2);
   });
 
+  it('indexes large RTL cluster maps and extracts a tail slice without rescanning the whole run', () => {
+    const count = 24000;
+    const text = 'א'.repeat(count);
+    const run = createShapedRun({
+      id: 'large-rtl-run',
+      text,
+      sourceRange: { start: 0, end: count },
+      font: {
+        fontId: 'fnt-large-test',
+        sourceHash: 'b'.repeat(64),
+        faceIndex: 0,
+        unitsPerEm: 1000
+      },
+      shaping: {
+        engine: 'harfbuzz',
+        engineVersion: '15.0.0',
+        unicodeVersion: '18.0.0',
+        script: 'Hebr',
+        language: 'he',
+        direction: 'rtl',
+        bidiLevel: 1,
+        bot: true,
+        eot: true,
+        clusterLevel: CLUSTER_LEVEL,
+        variationAxes: [],
+        features: []
+      },
+      graphemes: Array.from({ length: count }, (_, index) => ({
+        start: index, end: index + 1, text: 'א'
+      })),
+      glyphs: Array.from({ length: count }, (_, index) => ({
+        gid: 1,
+        cluster: count - index - 1,
+        xAdvance: 500,
+        yAdvance: 0,
+        xOffset: 0,
+        yOffset: 0,
+        flags: 0
+      }))
+    });
+    assertEq(run.clusters.length, count, 'every visible source grapheme has a logical cluster');
+    assertEq(run.clusters[0].start, 0, 'logical cluster map is ascending');
+    assertEq(run.clusters[count - 1].start, count - 1, 'logical cluster map reaches the final source grapheme');
+    assertEq(run.clusters[0].glyphIndices, [count - 1], 'RTL map retains visual glyph index');
+    assert(isShapedClusterBoundary(run, count - 3), 'binary boundary lookup finds a late source boundary');
+    assert(!isShapedClusterBoundary(run, count - 2 + 0.5), 'non-integer offsets are not boundaries');
+
+    const tail = sliceShapedRun(run, count - 3, count);
+    assertEq(tail.glyphs.map(glyph => glyph.cluster), [count - 1, count - 2, count - 3],
+      'binary glyph-range extraction keeps HarfBuzz RTL visual order');
+    assertEq(tail.clusters.map(cluster => cluster.glyphIndices), [[2], [1], [0]],
+      'the sliced logical cluster map points to the local visual glyph array');
+  });
+
+  it('uses ascending glyph-range lookup for LTR slices', () => {
+    const input = validInput();
+    input.shaping.direction = 'ltr';
+    input.shaping.bidiLevel = 0;
+    input.glyphs = input.glyphs.slice().reverse();
+    const run = createShapedRun(input);
+    const slice = sliceShapedRun(run, 100, 104);
+    assertEq(slice.glyphs.map(glyph => glyph.cluster), [100, 103],
+      'LTR slice keeps ascending visual glyph order');
+  });
+
   it('rejects non-monotone HarfBuzz output clusters in the selected run direction', () => {
     const rtl = validInput();
     rtl.glyphs = [
