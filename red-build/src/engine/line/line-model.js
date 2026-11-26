@@ -221,6 +221,7 @@ const res = breakItemSequence(ex.kept, maxWidthPx, {
     ok: true, lines, diagnostics,
     blockId: sequence.blockId, blockKind: sequence.blockKind, semantic: sequence.semantic || null,
     floats,
+    ...(sequence.shapingPreview ? { shapingPreview: sequence.shapingPreview } : {}),
     stats: { lines: lines.length, floats: floats.length, modelVersion: LINE_MODEL_VERSION }
   };
 }
@@ -240,13 +241,28 @@ function assembleLine(items, cut, maxWidthPx, wrap, opts, policy, sequence, line
   const isLastLine = cut.reason === 'final' || cut.reason === 'overflow-final';
   // עמודת השדה של המקור: סדר הפריטים והמפרידים כפי שנוצרו — לשחזור מדויק ולמיפוי מקור לכל פרגמנט
   const flow = seg.map((it) => it.role === 'glue'
-    ? { type: 'glue', itemId: it.itemId, sep: it.sep != null ? it.sep : ' ', gapChars: it.gapChars != null ? it.gapChars : (it.sep != null ? it.sep : ' '), internal: !!it.internal, noteRef: it.noteRef || null }
-    : { type: 'box', itemId: it.itemId, kind: it.kind });
+    ? {
+        type: 'glue', itemId: it.itemId,
+        sep: it.sep != null ? it.sep : ' ',
+        gapChars: it.gapChars != null ? it.gapChars : (it.sep != null ? it.sep : ' '),
+        internal: !!it.internal, noteRef: it.noteRef || null,
+        ...(it.shapingSlices ? { shapingSlices: it.shapingSlices } : {})
+      }
+    : {
+        type: 'box', itemId: it.itemId, kind: it.kind,
+        ...(it.shapingSlices ? { shapingSlices: it.shapingSlices } : {})
+      });
   // ה-glue שעל נקודת החיתוך שייך למקור בין שתי השורות — נשמר בעמודת השדה לשחזור מדויק
   // (שימור מקור §22), מסומן breakGlue ואינו נכנס לרוחב השורה או להקצאת ה-glue.
   const atCut = items[cut.to];
   if (atCut && atCut.role === 'glue' && !atCut.internal) {
-    flow.push({ type: 'glue', itemId: atCut.itemId, sep: atCut.sep != null ? atCut.sep : ' ', gapChars: atCut.gapChars != null ? atCut.gapChars : (atCut.sep != null ? atCut.sep : ' '), internal: false, breakGlue: true });
+    flow.push({
+      type: 'glue', itemId: atCut.itemId,
+      sep: atCut.sep != null ? atCut.sep : ' ',
+      gapChars: atCut.gapChars != null ? atCut.gapChars : (atCut.sep != null ? atCut.sep : ' '),
+      internal: false, breakGlue: true,
+      ...(atCut.shapingSlices ? { shapingSlices: atCut.shapingSlices } : {})
+    });
   }
 
   // פרגמנטים מסודרים עם זהות ומקור (§4.1-10)
@@ -265,6 +281,7 @@ function assembleLine(items, cut, maxWidthPx, wrap, opts, policy, sequence, line
       sourceRange: it.sourceRange || null,
       sourceAnchor: it.sourceAnchor || null,
       overlay: it.overlay || null, // §7: שכבת סגנון המילה (סוגריים/סגנון inline) — לגזירת spans
+      ...(it.shapingSlices ? { shapingSlices: it.shapingSlices } : {}),
       ...(it.sourceText != null ? { sourceText: it.sourceText } : {}), // תמונות/אטומים — טקסט המקור (תצוגת המוצר)
       diagnostics: it.diagnostics || []
     });

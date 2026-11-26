@@ -37,6 +37,7 @@
 const { measureItem, familyWidthProfileOf } = require('../typography/measure-api');
 const fontResolver = require('../typography/font-resolver');
 const { splitWordsOfRun } = require('./breaks');
+const { projectShapedTextItemRanges } = require('../typography/paragraph-shaping');
 
 /** פתרון סגנון פריט — מקור יחיד (הועבר לכאן בשלב 4 מקטע ב׳ כדי לנתק תלות
  * מעגלית measure-model ⇄ line-items): מזהי גופן לפי ריצה (מה-resolver), גודל
@@ -204,10 +205,31 @@ function buildContainerSequence(cont, ctx = {}, opts = {}) {
     dir, lang, constraints, constraintsKey, ctx, blockId,
     base,
     baseStyle: cont.baseStyle || null,
-    wordStyleOf: typeof cont.wordStyleOf === 'function' ? cont.wordStyleOf : null
+    wordStyleOf: typeof cont.wordStyleOf === 'function' ? cont.wordStyleOf : null,
+    shapedTextItems: null
   };
   const items = (cont.items || []).length ? cont.items : [];
   if (!items.length) return null;
+
+  // Experimental, opt-in paragraph shaping: shape every complete TextItem
+  // before splitTextItem creates word boxes. This sidecar never feeds
+  // MeasureAPI or changes a line-break width.
+  const shapingPreview = [];
+  if (ctx.paragraphShaper != null) {
+    if (typeof ctx.paragraphShaper.shapeTextItem !== 'function') {
+      throw new TypeError('buildContainerSequence: paragraphShaper.shapeTextItem is required');
+    }
+    env.shapedTextItems = new Map();
+    for (const item of items) {
+      if (item.kind !== 'text') continue;
+      const shaped = ctx.paragraphShaper.shapeTextItem(item, { direction: dir, language: lang });
+      if (!shaped || shaped.kind !== 'ShapedTextItem' || shaped.itemId !== item.id) {
+        throw new TypeError('buildContainerSequence: paragraphShaper returned an invalid ShapedTextItem for ' + item.id);
+      }
+      env.shapedTextItems.set(item, shaped);
+      shapingPreview.push(shaped);
+    }
+  }
 
   // ── שלב (א): הכנה — פיצול לתיבות עם זהות ומקור (בלי מדידה) ──
   const boxes = [];
@@ -251,7 +273,8 @@ function buildContainerSequence(cont, ctx = {}, opts = {}) {
   out.push({ role: 'penalty', penaltyType: 'final', cost: 0, itemId: `${blockId}#end` });
   return {
     blockId, blockKind: cont.kind, semantic: opts.semantic || null,
-    items: out, rejected
+    items: out, rejected,
+    ...(shapingPreview.length ? { shapingPreview: Object.freeze(shapingPreview.slice()) } : {})
   };
 }
 
@@ -342,12 +365,35 @@ function splitTextItem(item, env, boxes, rejected) {
       }
     }
   }
-  // המפריד שנצבר בסוף הפריט ולא נצרך — שייך בין תיבה אחרונה לבאה אחריה (מועבר ב-trailingSep)
-  for (const w of words) {
-    boxes.push({ source: item, word: w, joinedToPrev: false });
+  // Project paragraph-level glyph data only after full TextItem shaping.
+  // A word or source separator may be sliced only at HarfBuzz output-cluster edges.
+  const shapedTextItem = env.shapedTextItems && env.shapedTextItems.get(item);
+  if (shapedTextItem) {
+    for (const word of words) {
+      const first = word.fragments[0];
+      const last = word.fragments[word.fragments.length - 1];
+      word.shapingSlices = projectShapedTextItemRanges(shapedTextItem, [{
+        start: first.docStart,
+        end: last.docEnd
+      }])[0];
+      if (word.sep != null && word.sepRange) {
+        const absoluteSeparator = sepRangeAbs(word.sepRange, item);
+        word.separatorShapingSlices =
+          projectShapedTextItemRanges(shapedTextItem, [absoluteSeparator])[0];
+      }
+    }
+    if (words.length && pendingSep) {
+      const absoluteTrailingSeparator = sepRangeAbs(pendingSep, item);
+      words[words.length - 1].trailingSepShapingSlices =
+        projectShapedTextItemRanges(shapedTextItem, [absoluteTrailingSeparator])[0];
+    }
+  }
+
+  for (const word of words) {
+    boxes.push({ source: item, word, joinedToPrev: false });
   }
   if (words.length && pendingSep) {
-    boxes[boxes.length - 1].trailingSep = pendingSep; // בין פריט זה לפריט הבא (רווחי סוף-ריצה)
+    boxes[boxes.length - 1].trailingSep = pendingSep;
   }
 }
 
@@ -402,6 +448,7 @@ function boxItemFor(b, env) {
       fragments,
       measured: m,
       overlay: b._overlay || null,
+      ...(b.word.shapingSlices ? { shapingSlices: b.word.shapingSlices } : {}),
       sourceRange: {
         blockId: env.blockId, itemId: src.id,
         runIndex: f0.runIndex,
@@ -484,7 +531,7 @@ function separatorOf(prevBox, nextBox) {
   const sameItem = prevSrc === nextSrc || (prevSrc.id != null && prevSrc.id === nextSrc.id);
   if (sameItem && prevBox.word && nextBox.word && prevBox.word.sep != null) {
     const r = prevBox.word.sepRange || { fromRun: 0, fromStart: 0, toRun: 0, toEnd: prevBox.word.sep.length };
-    return { sep: prevBox.word.sep, range: r, owner: prevSrc };
+    return { sep: prevBox.word.sep, range: r, owner: prevSrc, shapingSlices: prevBox.word.separatorShapingSlices || null };
   }
   // בין פריטים (או מילה-אחרונה בפריט): רווחי סוף + הפער המוחלט
   const tail = (prevBox.word && prevBox.trailingSep) ? prevBox.trailingSep.text : '';
@@ -496,7 +543,9 @@ function separatorOf(prevBox, nextBox) {
   return {
     sep, owner: prevSrc,
     range: { fromRun: r.fromRun, fromStart: r.fromStart, toRun: r.toRun, toEnd: r.toEnd + gap },
-    crossItem: !sameItem
+    crossItem: !sameItem,
+    shapingSlices: prevBox.word && prevBox.word.trailingSepShapingSlices
+      ? prevBox.word.trailingSepShapingSlices : null
   };
 }
 
@@ -527,6 +576,13 @@ function sepRangeAbs(range, owner) {
   };
 }
 
+function separatorShapingSlicesOf(prevBox, nextBox) {
+  const sameItem = prevBox.source === nextBox.source ||
+    (prevBox.source && nextBox.source && prevBox.source.id != null && prevBox.source.id === nextBox.source.id);
+  if (sameItem && prevBox.word) return prevBox.word.separatorShapingSlices || null;
+  return prevBox.word ? (prevBox.word.trailingSepShapingSlices || null) : null;
+}
+
 /** glue בין שתי תיבות — המפריד המקורי המדויק נשמר (sep + gapChars) לשחזור מלא.
  * **מקטע ב׳ (המדידה = הדיו):** רוחב השבירה של ה-glue הוא רוחב הצורה
  * **המרונדרת** — מרווח בודד (הרנדררים מצמצמים רצפי רווחים: white-space:normal
@@ -543,6 +599,7 @@ function glueItemFor(prevBox, nextBox, env) {
     role: 'glue', kind: 'glue', itemId: glueItemId, sourceItemId: owner.id,
     sep, gapChars: sep,
     measured: m,
+    ...(separatorShapingSlicesOf(prevBox, nextBox) ? { shapingSlices: separatorShapingSlicesOf(prevBox, nextBox) } : {}),
     sourceRange: { blockId: env.blockId, itemId: owner.id, runIndex: range.fromRun, start: abs.start, end: abs.end },
     constraints: null
   });
@@ -565,6 +622,7 @@ function internalGlueFor(prevBox, nextBox, env) {
     role: 'glue', kind: 'glue', itemId: glueItemId, sourceItemId: owner.id,
     sep: '\u00A0', internal: true, gapChars: sep, noteRef,
     measured: m,
+    ...(separatorShapingSlicesOf(prevBox, nextBox) ? { shapingSlices: separatorShapingSlicesOf(prevBox, nextBox) } : {}),
     sourceRange: { blockId: env.blockId, itemId: owner.id, runIndex: range.fromRun, start: abs.start, end: abs.end },
     constraints: null
   });
@@ -673,6 +731,7 @@ function lineItemOf(base) {
     diagnostics: ok ? (m.diagnostics || []) : [{ code: m && m.code, message: m && m.message, measureFailed: true }],
     // פרגמנטים (§4.1-3): מילה מרובת גופנים — לעולם לא מחרוזת שטוחה
     fragments: base.fragments || [],
+    ...(base.shapingSlices ? { shapingSlices: base.shapingSlices } : {}),
     // טקסט מקור של פריט שלם (תמונה/אטום) — לתצוגת המוצר עד שלב 8
     sourceText: base.sourceText != null ? base.sourceText : null,
     // **שלב 8 פרוסה 2 (§4.2):** הצהרת התמונה (assetId/מידות/fit/placement) —

@@ -6,9 +6,10 @@ const { describe, it, assert, assertEq, report } = require('../harness');
 
 const fontResolver = require('../../src/engine/typography/font-resolver');
 const { buildDocumentModel } = require('../../src/engine/model/document-model');
-const { buildLineSequences, LINE_ITEM_CONTRACT_VERSION } = require('../../src/engine/line/line-items');
+const { buildLineSequences, buildContainerSequence, LINE_ITEM_CONTRACT_VERSION } = require('../../src/engine/line/line-items');
 const { layoutSequence, reconstructTextOfLines } = require('../../src/engine/line/line-model');
 const { clearItemMeasureCache } = require('../../src/engine/typography/measure-api');
+const { createShapedRun } = require('../../src/engine/typography/shaped-run');
 const { AssetResolver } = require('../../src/engine/assets/asset-resolver');
 
 const REPO = path.join(__dirname, '..', '..');
@@ -242,6 +243,149 @@ describe('שלב 4 — זהות נגזרת-מקור ומיפוי מוחלט (§3
       assert(it.sourceRange && it.sourceRange.blockId === para2.blockId, 'blockId ממולא: ' + it.itemId);
       assert(Number.isFinite(it.sourceRange.start) && Number.isFinite(it.sourceRange.end), 'טווח מוחלט: ' + it.itemId);
     }
+  });
+
+  it('opt-in paragraph shaping runs before word splitting and preserves exact word/space ShapedRun slices without changing measurements', () => {
+    registerRealFonts();
+    clearItemMeasureCache();
+    const text = 'אחד שני';
+    const fontId = fontResolver.fontIdOfAlias('Frank Ruhl Libre');
+    const fontRecord = fontResolver.resolveFontById(fontId).record;
+    const item = {
+      id: 'paragraph-shaping-sidecar',
+      kind: 'text',
+      sourceRange: { start: 500, end: 500 + text.length, blockId: 'shaping-block' },
+      payload: {
+        text,
+        runs: [{ text, sourceStart: 0, sourceEnd: text.length, fontFamily: 'Frank Ruhl Libre' }]
+      }
+    };
+    const makeShapedItem = (mergeWholeText = false) => {
+      const graphemes = [];
+      let offset = 0;
+      for (const character of Array.from(text)) {
+        const start = 500 + offset;
+        offset += character.length;
+        graphemes.push({ start, end: 500 + offset, text: character });
+      }
+      const clusters = mergeWholeText ? [500] : graphemes.map(grapheme => grapheme.start);
+      const glyphs = clusters.map((cluster, index) => ({
+        gid: index + 1,
+        cluster,
+        xAdvance: 500,
+        yAdvance: 0,
+        xOffset: 0,
+        yOffset: 0,
+        flags: 0,
+        controlBounds: null,
+        inkBounds: null
+      }));
+      glyphs.reverse();
+      const run = createShapedRun({
+        id: 'paragraph-shaping-sidecar#shape:500-507',
+        text,
+        sourceRange: { start: 500, end: 500 + text.length, blockId: 'shaping-block', itemId: item.id },
+        font: {
+          fontId,
+          faceIndex: 0,
+          unitsPerEm: fontRecord.unitsPerEm,
+          sourceHash: fontRecord.sourceHash
+        },
+        shaping: {
+          engine: 'harfbuzz',
+          engineVersion: '15.0.0',
+          unicodeVersion: '18.0.0',
+          script: 'Hebr',
+          language: 'he',
+          direction: 'rtl',
+          bidiLevel: 1,
+          bot: true,
+          eot: true,
+          clusterLevel: 'monotone-characters',
+          variationAxes: [],
+          features: [{ tag: 'kern', value: 1 }]
+        },
+        graphemes,
+        glyphs
+      });
+      return {
+        kind: 'ShapedTextItem',
+        itemId: item.id,
+        text,
+        sourceRange: { start: 500, end: 500 + text.length },
+        sourceRuns: [{
+          kind: 'shape', start: 0, end: text.length, text,
+          sourceRanges: [{
+            localRange: { start: 0, end: text.length },
+            sourceRange: { start: 500, end: 500 + text.length }
+          }]
+        }],
+        nonShapingRuns: [],
+        shapedRuns: [run],
+        diagnostics: []
+      };
+    };
+    const baseline = buildContainerSequence(
+      { id: 'shaping-block', kind: 'paragraph', items: [item] },
+      { settings: SETTINGS }
+    );
+    let shapeCalls = 0;
+    const paragraphShaper = {
+      shapeTextItem(sourceItem, request) {
+        shapeCalls++;
+        assert(sourceItem === item, 'full TextItem is shaped before word projection');
+        assertEq(request.direction, 'rtl', 'explicit base direction reaches the shaper');
+        assertEq(sourceItem.payload.runs.map(run => run.text).join(''), text,
+          'the shaper receives the complete TextItem, including its source space');
+        return makeShapedItem(false);
+      }
+    };
+    const experimental = buildContainerSequence(
+      { id: 'shaping-block', kind: 'paragraph', items: [item] },
+      { settings: SETTINGS, paragraphShaper }
+    );
+    assertEq(shapeCalls, 1, 'the TextItem is shaped exactly once before splitTextItem');
+    assert(experimental.shapingPreview && experimental.shapingPreview.length === 1,
+      'the complete paragraph shaping result is retained as a sequence sidecar');
+
+    const words = experimental.items.filter(entry => entry.role === 'box' && entry.kind === 'text');
+    const byText = new Map(words.map(entry => [entry.fragments.map(fragment => fragment.text).join(''), entry]));
+    assert(byText.has('אחד') && byText.has('שני'), 'word splitting still creates the expected word boxes');
+    assertEq(byText.get('אחד').shapingSlices.glyphCount, 3, 'first word receives exactly three glyphs');
+    assertEq(byText.get('שני').shapingSlices.glyphCount, 3, 'second word receives exactly three glyphs');
+    const glue = experimental.items.find(entry => entry.role === 'glue' && !entry.internal);
+    assert(glue && glue.shapingSlices, 'the source space is projected onto the glue item');
+    assertEq(glue.shapingSlices.glyphCount, 1, 'the source space keeps its own shaped glyph');
+
+    const signature = sequence => sequence.items.map(entry => [
+      entry.role, entry.kind, entry.itemId, entry.measuredAdvance
+    ]);
+    assertEq(signature(experimental), signature(baseline),
+      'the shaping sidecar does not change measured advances or line item order');
+
+    const lineModel = layoutSequence(experimental, { maxWidthPx: 500, lineHeightPx: 21.44 });
+    assert(lineModel.shapingPreview && lineModel.shapingPreview.length === 1,
+      'complete ShapedTextItem survives into the LineModel result');
+    const lineFragments = lineModel.lines.flatMap(line => line.fragments);
+    const laidWord = lineFragments.find(fragment =>
+      fragment.fragments.map(part => part.text).join('') === 'אחד');
+    assert(laidWord && laidWord.shapingSlices.glyphCount === 3,
+      'word ShapedRun slice survives in LineModel fragments');
+    const laidGlue = lineModel.lines.flatMap(line => line.flow).find(flow => flow.type === 'glue');
+    assert(laidGlue && laidGlue.shapingSlices.glyphCount === 1,
+      'space ShapedRun slice survives in LineModel flow');
+
+    let splitError = null;
+    const ligatureShaper = { shapeTextItem() { return makeShapedItem(true); } };
+    try {
+      buildContainerSequence(
+        { id: 'shaping-block', kind: 'paragraph', items: [item] },
+        { settings: SETTINGS, paragraphShaper: ligatureShaper }
+      );
+    } catch (error) { splitError = error; }
+    assert(splitError instanceof Error, 'a cluster spanning word/space boundaries must not be split');
+    assertEq(splitError.code, 'slice-splits-shaped-cluster',
+      'a cross-word ligature is rejected at the shaping boundary rather than split silently');
   });
 });
 
