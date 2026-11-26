@@ -4967,3 +4967,23 @@ HEAD של הוכחת runtime: `ce660608e56b0ed1c1c9af45a2958fa68a6f58cd`.
 - Confirmed PDF still uses per-character `cidOf(ch)` and renderer-local visual-order handling; font subsetter begins from Unicode/cmap rather than shaped GIDs.
 - Created `audits/PRODUCTION_SHAPEDRUN_INTEGRATION_CONTRACT_2026-11-25.md`, defining the one-path contract: itemize paragraph before splitting; canonical shaped result feeds `MeasureAPI.measureItem`; cluster-safe word slices feed LineModel; line-edge BOT/EOT is resolved before PageModel; PageModel glyph placements feed DOM/HTML/PDF without reshaping.
 - This is a source-grounded integration contract, not a claim that production code has changed. No production MeasureAPI, LineItems, LineModel, materializer, DOM or PDF code changed. TYP-SHAPING-01 remains open pending implementation and all-target acceptance.
+
+## 2026-11-26 — HarfBuzz production measurement and native glyph projections (implementation in progress)
+
+- Working branch: `engine/legacy-parity-preview-20261119`.
+- Implementation chain added:
+  - explicit `_typographyShaping` policy → pinned Worker Unicode 18 / HarfBuzz runtime → paragraph-level shaping before word splitting;
+  - canonical `MeasureAPI.measureItem` consumes shaped glyph advances for words and source-space glue; shaped inputs are included in measurement cache identity;
+  - word/space slices preserve source ranges and ShapedRuns through LineModel and positioned PageModel words;
+  - PageModel content hashing and invariants include positioned-word glyph sidecars;
+  - HarfBuzz DrawFuncs capture bounded, cached GID SVG outlines; explicit production shaping now enables outline capture by default;
+  - DOM/HTML renderer projects positioned words from the stored GID outlines as SVG paths, retaining accessible Unicode text;
+  - PDF writer projects the same outlines to vector path operators and marks the original Unicode word with PDF `/ActualText`; shaped PDF words without native outlines are rejected explicitly.
+- New/extended regression coverage:
+  - shaped advances and cache isolation in MeasureAPI;
+  - real Worker-runtime → production `typeset` → PageModel glyph/outline retention;
+  - native SVG DOM projection and explicit outline-missing fallback;
+  - PDF vector outline emission, ActualText text extraction and explicit rejection when outlines are missing.
+- Latest source/test commit at this entry: `74f714183108a0f9b1a81a20034305728502c89b`.
+- CI, full-math, corpus, runtime and Preview workflows were queued against this commit when recorded; no success is claimed yet. The prior bundle-build failures on `98c2d92` and `a34dc39` were Git push non-fast-forward races (the branch had advanced during concurrent bundle rebuilds), not reported code/test failures.
+- Scope boundary: shaping remains an explicit opt-in because the canonical font/default/language policy and environment-equivalence decisions are not yet user-approved. It is not silently enabled for ordinary documents. When enabled, native outlines are now mandatory to prevent DOM/PDF from re-shaping the Unicode text independently.
