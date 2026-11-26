@@ -82,6 +82,14 @@ describe('Production typography runtime — pinned local assets', () => {
         typeof scalar.isDefaultIgnorable === 'boolean')),
     'Unicode 18 scalar records retain Default_Ignorable_Code_Point metadata');
 
+    const commonPunctuation = runtime.itemize('— …', 'rtl').itemization;
+    assert(commonPunctuation.graphemes.every((grapheme) =>
+      grapheme.script === 'Zyyy' && grapheme.shapeable === true &&
+      grapheme.status === 'common-script-default'),
+    'isolated visible Common/Inherited punctuation is shaped with Script=Common, not discarded');
+    assertEq(commonPunctuation.scriptRuns.map(run => run.script), ['Zyyy'],
+      'the complete punctuation run is passed to HarfBuzz as Common Script');
+
     const shaper = runtime.createShaper({ resolveFontById() {
       return { ok: false, code: 'font-not-registered' };
     } });
@@ -278,7 +286,7 @@ describe('Production typography runtime — pinned local assets', () => {
       assert(!Object.prototype.hasOwnProperty.call(settings, '_typographyShaping'),
         'ordinary product settings must not need a manual shaping opt-in');
       const result = typeset(
-        'כותרת 1 - בדיקת גופן כותרת\nשמע ישראל mixed English text לבדיקת shaping.\n',
+        'כותרת 1 - בדיקת גופן כותרת\nשמע ישראל mixed English text לבדיקת shaping.\n— …\n',
         settings,
         { typographyRuntime: runtime }
       );
@@ -293,6 +301,8 @@ describe('Production typography runtime — pinned local assets', () => {
         'body TextItems must use the body-font selected in product settings');
       assert(shapedRuns.some(run => run.font.fontId === heading.fontId),
         'heading TextItems must use heading-1-font, not the global body font');
+      assert(shapedRuns.some(run => run.shaping.script === 'Zyyy' && run.shaping.language === 'und'),
+        'the real product pipeline must shape an isolated visible Common-script paragraph');
       assert(result.events.events.some(event =>
         event.label === 'paragraph-shaping-enabled' &&
         event.payload && event.payload.mode === 'product-defaults'),
