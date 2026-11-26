@@ -359,10 +359,31 @@ describe('שלב 4 — זהות נגזרת-מקור ומיפוי מוחלט (§3
     assertEq(glue.shapingSlices.glyphCount, 1, 'the source space keeps its own shaped glyph');
 
     const signature = sequence => sequence.items.map(entry => [
-      entry.role, entry.kind, entry.itemId, entry.measuredAdvance
+      entry.role, entry.kind, entry.itemId
     ]);
     assertEq(signature(experimental), signature(baseline),
-      'the shaping sidecar does not change measured advances or line item order');
+      'shaping preserves line item identity and source order');
+
+    // The line-break width is now the shaped glyph advance, not the old
+    // character-by-character metric. The synthetic shaper above assigns
+    // exactly 500 font units to each glyph, including the source space.
+    const shapedWordAdvance = (3 * 500 / fontRecord.unitsPerEm) * (12 * 96 / 72);
+    const shapedSpaceAdvance = (500 / fontRecord.unitsPerEm) * (12 * 96 / 72);
+    assert(Math.abs(byText.get('אחד').measuredAdvance - baseline.items.find(entry =>
+      entry.role === 'box' && entry.itemId === byText.get('אחד').itemId).measuredAdvance) > 0.1,
+      'the shaped measurement must replace the legacy character metric');
+    assert(Math.abs(byText.get('שני').measuredAdvance - baseline.items.find(entry =>
+      entry.role === 'box' && entry.itemId === byText.get('שני').itemId).measuredAdvance) > 0.1,
+      'the second shaped word must also use HarfBuzz advances');
+    assert(Math.abs(glue.measuredAdvance - baseline.items.find(entry =>
+      entry.role === 'glue' && entry.itemId === glue.itemId).measuredAdvance) > 0.1,
+      'the source-space advance is shaped too');
+    assert(Math.abs(byText.get('אחד').measuredAdvance - shapedWordAdvance) < 1e-9,
+      'first word width is the sum of its shaped glyph advances');
+    assert(Math.abs(byText.get('שני').measuredAdvance - shapedWordAdvance) < 1e-9,
+      'second word width is the sum of its shaped glyph advances');
+    assert(Math.abs(glue.measuredAdvance - shapedSpaceAdvance) < 1e-9,
+      'source-space width comes from its own shaped glyph');
 
     const lineModel = layoutSequence(experimental, { maxWidthPx: 500, lineHeightPx: 21.44 });
     assert(lineModel.shapingPreview && lineModel.shapingPreview.length === 1,
