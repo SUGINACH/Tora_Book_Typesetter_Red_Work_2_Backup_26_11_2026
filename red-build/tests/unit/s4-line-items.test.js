@@ -2,7 +2,7 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
-const { describe, it, assert, assertEq, report } = require('../harness');
+const { describe, it, assert, assertEq, assertClose, report } = require('../harness');
 
 const fontResolver = require('../../src/engine/typography/font-resolver');
 const { buildDocumentModel } = require('../../src/engine/model/document-model');
