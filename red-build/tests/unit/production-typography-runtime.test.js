@@ -244,6 +244,64 @@ describe('Production typography runtime — pinned local assets', () => {
     }
   });
 
+  it('activates product shaping automatically and uses each block role font', async () => {
+    fontResolver.clearFontResolver();
+    try {
+      const bodyBytes = fs.readFileSync(path.join(RED_BUILD, 'ui', 'assets', 'imud', 'fonts', 'FrankRuhlLibre-VF.ttf'));
+      const headingBytes = fs.readFileSync(path.join(RED_BUILD, 'ui', 'assets', 'imud', 'fonts', 'DavidLibre-Regular.ttf'));
+      const body = fontResolver.registerFont('Frank Ruhl Libre', bodyBytes, {
+        source: 'product-default-shaping-test'
+      });
+      const heading = fontResolver.registerFont('David Libre', headingBytes, {
+        source: 'product-default-shaping-test'
+      });
+      assert(body.ok && heading.ok, 'the product body and heading fonts register from the embedded catalog');
+      const defaultAxes = fontResolver.defaultVariationAxesOf(body.fontId);
+      assert(Array.isArray(defaultAxes) && defaultAxes.length > 0 &&
+        defaultAxes.every(axis => /^[A-Za-z0-9]{4}$/.test(axis.tag) && Number.isFinite(axis.value)),
+      'variable body font policy comes from its fvar default axes');
+
+      const fetchState = createFetch();
+      const importState = { count: 0 };
+      const runtime = await loadProductionTypographyRuntime({
+        baseUrl: BASE_URL,
+        fetchImpl: fetchState.fetchImpl,
+        importModule: createImportModule(importState)
+      });
+      const settings = {
+        'body-font': 'Frank Ruhl Libre',
+        'heading-1-font': 'David Libre',
+        'body-font-size-pt': 12,
+        'body-line-height': 1.34,
+        '_engine-force-unified': true
+      };
+      assert(!Object.prototype.hasOwnProperty.call(settings, '_typographyShaping'),
+        'ordinary product settings must not need a manual shaping opt-in');
+      const result = typeset(
+        'כותרת 1 - בדיקת גופן כותרת\nשמע ישראל mixed English text לבדיקת shaping.\n',
+        settings,
+        { typographyRuntime: runtime }
+      );
+      assert(result.pageModel && result.pageModel.schema === 'pagemodel-v1',
+        'automatic product shaping must complete the normal PageModel pipeline');
+      const shapedRuns = result.pageModel.pages.flatMap(page => page.lines || [])
+        .flatMap(line => line.typography && line.typography.fragments ? line.typography.fragments : [])
+        .flatMap(fragment => fragment.shapingSlices && fragment.shapingSlices.shapedRuns
+          ? fragment.shapingSlices.shapedRuns : []);
+      assert(shapedRuns.length > 0, 'body and heading text must enter HarfBuzz without a synthetic config');
+      assert(shapedRuns.some(run => run.font.fontId === body.fontId),
+        'body TextItems must use the body-font selected in product settings');
+      assert(shapedRuns.some(run => run.font.fontId === heading.fontId),
+        'heading TextItems must use heading-1-font, not the global body font');
+      assert(result.events.events.some(event =>
+        event.label === 'paragraph-shaping-enabled' &&
+        event.payload && event.payload.mode === 'product-defaults'),
+      'the real pipeline must report that product settings activated shaping');
+    } finally {
+      fontResolver.clearFontResolver();
+    }
+  });
+
   it('rejects an enabled shaping policy that omits a required direction or runtime config', async () => {
     let error = null;
     try {

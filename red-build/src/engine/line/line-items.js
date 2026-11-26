@@ -222,7 +222,12 @@ function buildContainerSequence(cont, ctx = {}, opts = {}) {
     env.shapedTextItems = new Map();
     for (const item of items) {
       if (item.kind !== 'text') continue;
-      const shaped = ctx.paragraphShaper.shapeTextItem(item, { direction: dir, language: lang });
+      const itemDefaultFamily = (env.baseStyle && env.baseStyle.family) || base.defaultFamily;
+      const shaped = ctx.paragraphShaper.shapeTextItem(item, {
+        direction: dir,
+        language: lang,
+        ...(itemDefaultFamily ? { defaultFamily: itemDefaultFamily } : {})
+      });
       if (!shaped || shaped.kind !== 'ShapedTextItem' || shaped.itemId !== item.id) {
         throw new TypeError('buildContainerSequence: paragraphShaper returned an invalid ShapedTextItem for ' + item.id);
       }

@@ -21,9 +21,9 @@ function requireRecord(value, label) {
 }
 
 /**
- * Create an explicit, opt-in paragraph shaping service.
- * Runtime and font policy are fixed at construction; direction is supplied per item.
- * This service does not activate itself and never changes measurement.
+ * Create the canonical paragraph shaping service.
+ * Runtime and script policy are fixed at construction; the product's block font
+ * is supplied per TextItem so headings and body retain their own font roles.
  */
 function createParagraphShaper(options = {}) {
   requireRecord(options, 'options');
@@ -49,6 +49,7 @@ function createParagraphShaper(options = {}) {
   const fallbacksByFamily = options.fallbacksByFamily == null
     ? Object.create(null)
     : requireRecord(options.fallbacksByFamily, 'fallbacksByFamily');
+  const useNativeDefaults = options.useNativeDefaults === true;
   const defaultFamily = options.defaultFamily == null ? null : String(options.defaultFamily);
   if (defaultFamily != null && !defaultFamily.trim()) {
     fail('invalid-paragraph-shaping-config', 'defaultFamily must be non-empty when supplied');
@@ -68,10 +69,11 @@ function createParagraphShaper(options = {}) {
         bidiRuntime: runtime.unicode,
         fontResolver,
         direction: request.direction,
-        defaultFamily,
+        defaultFamily: request.defaultFamily == null ? defaultFamily : String(request.defaultFamily),
         languageByScript,
         featuresByScript,
         variationAxesByFontId,
+        useNativeDefaults,
         faceIndexByFontId,
         fallbacksByFamily
       });

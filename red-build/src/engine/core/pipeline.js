@@ -244,7 +244,7 @@ function typeset(rawText, settingsIn, env = {}) {
       engine: 'harfbuzz',
       unicodeVersion: productionShaping ? productionShaping.unicodeVersion : null,
       harfbuzzVersion: productionShaping ? productionShaping.harfbuzzVersion : null,
-      mode: productionShaping ? 'settings-opt-in' : 'injected-service'
+      mode: productionShaping ? productionShaping.policySource : 'injected-service'
     });
   }
   // **S70 (R7-M4):** עטיפת מדידה משותפת עם סימון המימוש. פקטורי הגופן

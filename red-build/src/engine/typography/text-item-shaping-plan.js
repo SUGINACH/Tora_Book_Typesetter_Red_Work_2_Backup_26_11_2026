@@ -345,17 +345,24 @@ function createTextItemShapingPlan(item, options = {}) {
   // Validate all shaping policies before resolving or opening font faces.
   // A malformed/missing language/feature policy must fail independently of
   // whether the requested font is installed in this runtime.
+  const useNativeDefaults = options.useNativeDefaults === true;
   const shapingConfigByScript = new Map();
   for (const scriptRun of itemization.scriptRuns) {
     if (!shapingConfigByScript.has(scriptRun.script)) {
-      const language = languageByScript[scriptRun.script];
-      if (typeof language !== 'string' || !language.trim()) {
+      const configuredLanguage = languageByScript[scriptRun.script];
+      const language = (typeof configuredLanguage === 'string' && configuredLanguage.trim())
+        ? configuredLanguage
+        : (useNativeDefaults
+          ? (scriptRun.script === 'Hebr' ? 'he' : scriptRun.script === 'Latn' ? 'en' : 'und')
+          : null);
+      if (!language) {
         fail('missing-script-language', 'No explicit language provided for Script ' + scriptRun.script);
       }
-      shapingConfigByScript.set(scriptRun.script, {
-        language,
-        features: normalizeFeatures(featuresByScript[scriptRun.script], scriptRun.script)
-      });
+      const configuredFeatures = featuresByScript[scriptRun.script];
+      const features = configuredFeatures == null && useNativeDefaults
+        ? []
+        : normalizeFeatures(configuredFeatures, scriptRun.script);
+      shapingConfigByScript.set(scriptRun.script, { language, features });
     }
   }
 
@@ -420,7 +427,12 @@ function createTextItemShapingPlan(item, options = {}) {
     if (resolution.record.font.unitsPerEm !== unitsPerEm) {
       fail('font-units-per-em-mismatch', 'FontResolver record and parsed font UPEM disagree for ' + fontId);
     }
-    const variationAxes = normalizeAxes(variationAxesByFontId[fontId], fontId);
+    const configuredAxes = variationAxesByFontId[fontId];
+    const axisPolicy = configuredAxes == null && useNativeDefaults &&
+      typeof fontResolver.defaultVariationAxesOf === 'function'
+      ? fontResolver.defaultVariationAxesOf(fontId)
+      : configuredAxes;
+    const variationAxes = normalizeAxes(axisPolicy, fontId);
     const faceIndex = faceIndexByFontId[fontId] == null
       ? 0 : requireRange(faceIndexByFontId[fontId], 'faceIndexByFontId.' + fontId);
     resolvedGraphemeFonts[graphemeIndex] = {

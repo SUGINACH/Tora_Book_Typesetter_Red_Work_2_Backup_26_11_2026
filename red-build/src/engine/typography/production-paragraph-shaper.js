@@ -50,16 +50,47 @@ function copyConfigValue(value, path) {
  *   fallbacksByFamily?: { "Family": ["Fallback A", ...], ... }
  * }
  */
+function buildProductShapingPolicy(settings, env) {
+  const bodyFamily = settings && typeof settings['body-font'] === 'string'
+    ? settings['body-font'].trim() : '';
+  if (!bodyFamily) {
+    fail('production-shaping-default-font-unavailable',
+      'Automatic production shaping requires the product body-font setting');
+  }
+  const fallbacksByFamily = Object.create(null);
+  for (const [key, value] of Object.entries(settings || {})) {
+    if (!key.endsWith('-font') || typeof value !== 'string') continue;
+    const family = value.trim();
+    if (family && family !== bodyFamily) fallbacksByFamily[family] = [bodyFamily];
+  }
+  return {
+    enabled: true,
+    baseDirection: env && (env.direction === 'ltr' || env.direction === 'rtl')
+      ? env.direction : 'rtl',
+    defaultFamily: bodyFamily,
+    languageByScript: { Hebr: 'he', Latn: 'en' },
+    // Empty arrays preserve HarfBuzz's standard OpenType default feature set.
+    featuresByScript: { Hebr: [], Latn: [] },
+    // Static fonts use []; variable fonts use their actual fvar defaults.
+    variationAxesByFontId: Object.create(null),
+    fallbacksByFamily,
+    useNativeDefaults: true
+  };
+}
+
 function createProductionParagraphShaper(settings, env = {}) {
-  const config = settings && settings._typographyShaping;
-  if (config == null || config.enabled !== true) return null;
-  if (!isRecord(config)) {
+  const explicitConfig = settings && settings._typographyShaping;
+  if (explicitConfig != null && !isRecord(explicitConfig)) {
     fail('invalid-typography-shaping-config', 'settings._typographyShaping must be a plain object');
   }
   const runtime = env.typographyRuntime;
+  if (explicitConfig == null && !runtime) return null;
+  if (explicitConfig && explicitConfig.enabled !== true) return null;
+  const config = explicitConfig || buildProductShapingPolicy(settings || {}, env);
+
   if (!runtime || !runtime.unicode || !runtime.harfbuzz ||
       typeof runtime.createShaper !== 'function') {
-    fail('typography-runtime-required', 'Explicit paragraph shaping requires the verified Worker Unicode/HarfBuzz runtime');
+    fail('typography-runtime-required', 'Production paragraph shaping requires the verified Worker Unicode/HarfBuzz runtime');
   }
   if (runtime.unicode.unicodeVersion !== '18.0.0' ||
       typeof runtime.harfbuzz.shape !== 'function') {
@@ -73,7 +104,7 @@ function createProductionParagraphShaper(settings, env = {}) {
   }
   for (const key of ['languageByScript', 'featuresByScript', 'variationAxesByFontId']) {
     if (!isRecord(config[key])) {
-      fail('invalid-typography-shaping-config', key + ' must be an explicit object (empty only when no shaping run uses that map)');
+      fail('invalid-typography-shaping-config', key + ' must be an explicit object');
     }
   }
 
@@ -81,7 +112,6 @@ function createProductionParagraphShaper(settings, env = {}) {
     ? Object.create(null)
     : copyConfigValue(config.shaperOptions, 'shaperOptions');
   // A production-shaped word must never be rendered by a second browser/PDF shaper.
-  // Capture exact GID outlines by default for every explicitly enabled production job.
   shaperOptions.includeGlyphOutlines = true;
   if (config.maxOutlineCacheEntries != null) {
     if (!Number.isSafeInteger(config.maxOutlineCacheEntries) || config.maxOutlineCacheEntries < 1) {
@@ -103,6 +133,7 @@ function createProductionParagraphShaper(settings, env = {}) {
     ...(config.fallbacksByFamily != null
       ? { fallbacksByFamily: copyConfigValue(config.fallbacksByFamily, 'fallbacksByFamily') }
       : {}),
+    useNativeDefaults: config.useNativeDefaults === true,
     shaperOptions
   });
 
@@ -112,8 +143,8 @@ function createProductionParagraphShaper(settings, env = {}) {
     defaultFamily: config.defaultFamily,
     unicodeVersion: runtime.unicode.unicodeVersion,
     harfbuzzVersion: typeof runtime.harfbuzz.versionString === 'function'
-      ? runtime.harfbuzz.versionString() : null
+      ? runtime.harfbuzz.versionString() : null,
+    policySource: explicitConfig ? 'explicit-settings' : 'product-defaults'
   });
 }
-
 module.exports = { createProductionParagraphShaper };
