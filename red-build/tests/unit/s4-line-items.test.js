@@ -481,6 +481,102 @@ describe('שלב 4 — זהות נגזרת-מקור ומיפוי מוחלט (§3
     ], 'non-rendered inline marker source gap remains explicit');
   });
 
+  it('maps several HarfBuzz ScriptRuns back to one source fragment by absolute clusters, not array index', () => {
+    registerRealFonts();
+    clearItemMeasureCache();
+    const text = 'אבAB';
+    const start = 700;
+    const end = start + text.length;
+    const fontId = fontResolver.fontIdOfAlias('Frank Ruhl Libre');
+    const fontRecord = fontResolver.resolveFontById(fontId).record;
+    const item = {
+      id: 'mixed-script-single-source-run',
+      kind: 'text',
+      sourceRange: { start, end, blockId: 'mixed-script-block' },
+      payload: {
+        text,
+        runs: [{ text, sourceStart: 0, sourceEnd: text.length, fontFamily: 'Frank Ruhl Libre' }]
+      }
+    };
+    const makeScriptRun = ({ text: runText, sourceStart, script, direction, bidiLevel, clusters }) => {
+      let offset = 0;
+      const graphemes = Array.from(runText, character => {
+        const grapheme = {
+          start: sourceStart + offset,
+          end: sourceStart + offset + character.length,
+          text: character
+        };
+        offset += character.length;
+        return grapheme;
+      });
+      const glyphs = clusters.map((cluster, index) => ({
+        gid: index + 1, cluster, xAdvance: 500, yAdvance: 0,
+        xOffset: 0, yOffset: 0, flags: 0,
+        controlBounds: null, inkBounds: null
+      }));
+      return createShapedRun({
+        id: 'mixed-script#' + script,
+        text: runText,
+        sourceRange: {
+          start: sourceStart, end: sourceStart + runText.length,
+          blockId: 'mixed-script-block', itemId: item.id
+        },
+        font: {
+          fontId, faceIndex: 0,
+          unitsPerEm: fontRecord.unitsPerEm,
+          sourceHash: fontRecord.sourceHash
+        },
+        shaping: {
+          engine: 'harfbuzz', engineVersion: '15.0.0', unicodeVersion: '18.0.0',
+          script, language: script === 'Hebr' ? 'he' : 'en',
+          direction, bidiLevel,
+          bot: sourceStart === start,
+          eot: sourceStart + runText.length === end,
+          clusterLevel: 'monotone-characters',
+          variationAxes: [], features: [{ tag: 'kern', value: 1 }]
+        },
+        graphemes, glyphs
+      });
+    };
+    const hebrewRun = makeScriptRun({
+      text: 'אב', sourceStart: 700, script: 'Hebr',
+      direction: 'rtl', bidiLevel: 1, clusters: [701, 700]
+    });
+    const latinRun = makeScriptRun({
+      text: 'AB', sourceStart: 702, script: 'Latn',
+      direction: 'ltr', bidiLevel: 2, clusters: [702, 703]
+    });
+    const shaped = {
+      kind: 'ShapedTextItem', itemId: item.id, text, sourceRange: { start, end },
+      sourceRuns: [
+        { kind: 'shape', start: 0, end: 2, text: 'אב',
+          sourceRanges: [{ localRange: { start: 0, end: 2 }, sourceRange: { start: 700, end: 702 } }] },
+        { kind: 'shape', start: 2, end: 4, text: 'AB',
+          sourceRanges: [{ localRange: { start: 2, end: 4 }, sourceRange: { start: 702, end: 704 } }] }
+      ],
+      nonShapingRuns: [],
+      shapedRuns: [hebrewRun, latinRun],
+      diagnostics: []
+    };
+    const sequence = buildContainerSequence(
+      { id: 'mixed-script-block', kind: 'paragraph', items: [item] },
+      { settings: SETTINGS, paragraphShaper: { shapeTextItem: () => shaped } }
+    );
+    const word = sequence.items.find(entry => entry.role === 'box' && entry.kind === 'text');
+    assert(word, 'the mixed Hebrew/Latin word remains one source word');
+    assertEq(word.fragments.length, 1, 'the source document contains only one inline font run');
+    assertEq(word.shapingSlices.shapedRuns.length, 2, 'the word contains two HarfBuzz ScriptRuns');
+    const expectedAdvance = (4 * 500 / fontRecord.unitsPerEm) * (12 * 96 / 72);
+    assertClose(word.measuredAdvance, expectedAdvance, 1e-9,
+      'the line-break width includes glyph advances from both ScriptRuns');
+    assertEq(word.fragments[0].fontId, fontId,
+      'font identity is recovered from the glyph clusters, not shaped-run array position');
+    assertClose(word.fragments[0].advancePx, expectedAdvance, 1e-9,
+      'the single source fragment owns the complete advance of both ScriptRuns');
+    assertClose(word.fragments.reduce((sum, fragment) => sum + fragment.advancePx, 0),
+      word.measuredAdvance, 1e-9,
+      'source-fragment advances reconcile exactly to the measured line-item width');
+  });
 });
 
 report('s4-line-items');
