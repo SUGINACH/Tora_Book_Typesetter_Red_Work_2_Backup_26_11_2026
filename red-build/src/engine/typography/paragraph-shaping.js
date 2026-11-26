@@ -99,8 +99,7 @@ function projectShapedTextItemRange(shapedTextItem, range) {
   const itemStart = shapedTextItem.sourceRange.start;
   const itemEnd = shapedTextItem.sourceRange.end;
   if (!Number.isSafeInteger(itemStart) || !Number.isSafeInteger(itemEnd) ||
-      itemEnd - itemStart !== shapedTextItem.text.length ||
-      range.start < itemStart || range.end > itemEnd) {
+      itemEnd <= itemStart || range.start < itemStart || range.end > itemEnd) {
     fail('shaped-source-range-outside-item', 'Requested source range falls outside the ShapedTextItem envelope');
   }
 
@@ -182,7 +181,33 @@ function projectShapedTextItemRanges(shapedTextItem, ranges) {
   if (!Array.isArray(ranges) || ranges.length === 0) {
     fail('invalid-shaped-range-list', 'At least one source range must be supplied');
   }
-  return Object.freeze(ranges.map(range => projectShapedTextItemRange(shapedTextItem, range)));
+  const normalized = [];
+  for (const range of ranges) {
+    if (!isRecord(range) || !Number.isSafeInteger(range.start) ||
+        !Number.isSafeInteger(range.end) || range.end <= range.start) {
+      fail('invalid-shaped-source-range', 'Every projected source segment must be a non-empty UTF-16 interval');
+    }
+    const previous = normalized[normalized.length - 1];
+    if (previous && range.start < previous.end) {
+      fail('overlapping-shaped-source-ranges', 'Projected source segments must be ordered and non-overlapping');
+    }
+    if (previous && range.start === previous.end) {
+      previous.end = range.end;
+    } else {
+      normalized.push({ start: range.start, end: range.end });
+    }
+  }
+  const slices = normalized.map(range => projectShapedTextItemRange(shapedTextItem, range));
+  const shapedRuns = slices.flatMap(slice => slice.shapedRuns);
+  const nonShapingRuns = slices.flatMap(slice => slice.nonShapingRuns);
+  return Object.freeze({
+    contractVersion: 'paragraph-shaped-slices-set-v1',
+    sourceRanges: Object.freeze(normalized.map(range => Object.freeze({ ...range }))),
+    slices: Object.freeze(slices),
+    shapedRuns: Object.freeze(shapedRuns),
+    nonShapingRuns: Object.freeze(nonShapingRuns),
+    glyphCount: shapedRuns.reduce((sum, run) => sum + run.glyphs.length, 0)
+  });
 }
 
 module.exports = {

@@ -329,6 +329,7 @@ describe('שלב 4 — זהות נגזרת-מקור ומיפוי מוחלט (§3
       { id: 'shaping-block', kind: 'paragraph', items: [item] },
       { settings: SETTINGS }
     );
+    clearItemMeasureCache();
     let shapeCalls = 0;
     const paragraphShaper = {
       shapeTextItem(sourceItem, request) {
@@ -387,6 +388,78 @@ describe('שלב 4 — זהות נגזרת-מקור ומיפוי מוחלט (§3
     assertEq(splitError.code, 'slice-splits-shaped-cluster',
       'a cross-word ligature is rejected at the shaping boundary rather than split silently');
   });
+  it('projects multi-style words across non-rendered inline source gaps without inventing glyph coverage for the gap', () => {
+    registerRealFonts();
+    clearItemMeasureCache();
+    const item = {
+      id: 'inline-source-gap-shaping',
+      kind: 'text',
+      sourceRange: { start: 600, end: 605, blockId: 'inline-gap-block' },
+      payload: {
+        text: 'שחם',
+        runs: [
+          { text: 'שח', sourceStart: 0, sourceEnd: 2, fontFamily: 'Frank Ruhl Libre' },
+          { text: 'ם', sourceStart: 4, sourceEnd: 5, fontFamily: 'David Libre' }
+        ]
+      }
+    };
+    const makeRun = (text, start, family) => {
+      const fontId = fontResolver.fontIdOfAlias(family);
+      const record = fontResolver.resolveFontById(fontId).record;
+      let offset = 0;
+      const graphemes = Array.from(text, character => {
+        const grapheme = { start: start + offset, end: start + offset + character.length, text: character };
+        offset += character.length;
+        return grapheme;
+      });
+      const glyphs = graphemes.map((grapheme, index) => ({
+        gid: index + 1, cluster: grapheme.start,
+        xAdvance: 500, yAdvance: 0, xOffset: 0, yOffset: 0,
+        flags: 0, controlBounds: null, inkBounds: null
+      })).reverse();
+      return createShapedRun({
+        id: 'inline-source-gap-shaping#' + family,
+        text,
+        sourceRange: { start, end: start + text.length, blockId: 'inline-gap-block', itemId: item.id },
+        font: { fontId, faceIndex: 0, unitsPerEm: record.unitsPerEm, sourceHash: record.sourceHash },
+        shaping: {
+          engine: 'harfbuzz', engineVersion: '15.0.0', unicodeVersion: '18.0.0',
+          script: 'Hebr', language: 'he', direction: 'rtl', bidiLevel: 1,
+          bot: true, eot: true, clusterLevel: 'monotone-characters',
+          variationAxes: [], features: [{ tag: 'kern', value: 1 }]
+        },
+        graphemes,
+        glyphs
+      });
+    };
+    const firstRun = makeRun('שח', 600, 'Frank Ruhl Libre');
+    const secondRun = makeRun('ם', 604, 'David Libre');
+    const shaped = {
+      kind: 'ShapedTextItem',
+      itemId: item.id,
+      text: 'שחם',
+      sourceRange: { start: 600, end: 605 },
+      sourceRuns: [
+        { kind: 'shape', start: 0, end: 2, text: 'שח', sourceRanges: [{ localRange: { start: 0, end: 2 }, sourceRange: { start: 600, end: 602 } }] },
+        { kind: 'shape', start: 2, end: 3, text: 'ם', sourceRanges: [{ localRange: { start: 2, end: 3 }, sourceRange: { start: 604, end: 605 } }] }
+      ],
+      nonShapingRuns: [],
+      shapedRuns: [firstRun, secondRun],
+      diagnostics: []
+    };
+    const sequence = buildContainerSequence(
+      { id: 'inline-gap-block', kind: 'paragraph', items: [item] },
+      { settings: SETTINGS, paragraphShaper: { shapeTextItem: () => shaped } }
+    );
+    const word = sequence.items.find(entry => entry.role === 'box' && entry.kind === 'text');
+    assert(word, 'cross-style word remains one line item');
+    assertEq(word.shapingSlices.glyphCount, 3, 'both font-specific shaped runs survive on the word');
+    assertEq(word.shapingSlices.sourceRanges, [
+      { start: 600, end: 602 },
+      { start: 604, end: 605 }
+    ], 'non-rendered inline marker source gap remains explicit');
+  });
+
 });
 
 report('s4-line-items');

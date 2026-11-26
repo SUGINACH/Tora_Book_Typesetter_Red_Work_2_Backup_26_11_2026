@@ -372,20 +372,20 @@ function splitTextItem(item, env, boxes, rejected) {
     for (const word of words) {
       const first = word.fragments[0];
       const last = word.fragments[word.fragments.length - 1];
-      word.shapingSlices = projectShapedTextItemRanges(shapedTextItem, [{
-        start: first.docStart,
-        end: last.docEnd
-      }])[0];
+      word.shapingSlices = projectShapedTextItemRanges(
+        shapedTextItem,
+        word.fragments.map(fragment => ({ start: fragment.docStart, end: fragment.docEnd }))
+      );
       if (word.sep != null && word.sepRange) {
-        const absoluteSeparator = sepRangeAbs(word.sepRange, item);
-        word.separatorShapingSlices =
-          projectShapedTextItemRanges(shapedTextItem, [absoluteSeparator])[0];
+        word.separatorShapingSlices = projectShapedTextItemRanges(
+          shapedTextItem,
+          sourceSegmentsAbsOfRange(word.sepRange, item)
+        );
       }
     }
     if (words.length && pendingSep) {
-      const absoluteTrailingSeparator = sepRangeAbs(pendingSep, item);
       words[words.length - 1].trailingSepShapingSlices =
-        projectShapedTextItemRanges(shapedTextItem, [absoluteTrailingSeparator])[0];
+        projectShapedTextItemRanges(shapedTextItem, sourceSegmentsAbsOfRange(pendingSep, item));
     }
   }
 
@@ -562,6 +562,40 @@ function boxDocEnd(b) {
   }
   const sr = b.source && b.source.sourceRange;
   return sr && Number.isFinite(sr.end) ? sr.end : 0;
+}
+
+/** Exact source intervals for a separator spanning one or more inline runs. */
+function sourceSegmentsAbsOfRange(range, owner) {
+  const runs = (owner.payload && owner.payload.runs) || [];
+  if (!runs.length || !runs[range.fromRun] || !runs[range.toRun]) {
+    failShapingRange('invalid-separator-source-range', 'Separator range references a missing source run');
+  }
+  const run0 = runs[0];
+  const itemAbsStart = owner.sourceRange && Number.isFinite(owner.sourceRange.start) ? owner.sourceRange.start : 0;
+  const base = itemAbsStart - (Number.isFinite(run0.sourceStart) ? run0.sourceStart : 0);
+  const ranges = [];
+  for (let ri = range.fromRun; ri <= range.toRun; ri++) {
+    const run = runs[ri];
+    const runLength = String(run.text == null ? '' : run.text).length;
+    const localStart = ri === range.fromRun ? range.fromStart : 0;
+    const localEnd = ri === range.toRun ? range.toEnd : runLength;
+    if (localEnd <= localStart) continue;
+    const runSourceStart = Number.isFinite(run.sourceStart) ? run.sourceStart : 0;
+    ranges.push({
+      start: base + runSourceStart + localStart,
+      end: base + runSourceStart + localEnd
+    });
+  }
+  if (!ranges.length) {
+    failShapingRange('empty-separator-source-range', 'Separator contains no source text segments');
+  }
+  return ranges;
+}
+
+function failShapingRange(code, message) {
+  const error = new Error(message);
+  error.code = code;
+  throw error;
 }
 
 /** היסט מוחלט של טווח מפריד (מריצות הפריט שבבעלותו). */
