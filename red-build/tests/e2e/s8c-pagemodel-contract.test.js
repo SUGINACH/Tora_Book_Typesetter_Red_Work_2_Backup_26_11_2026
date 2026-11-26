@@ -341,6 +341,15 @@ describe('שלב 8 פרוסה 2 (§4.3) — חוזה העברת Worker', () => {
       .typography.fragments[0].shapingSlices.shapedRuns[0].glyphs[0].gid += 1;
     assertEq(receivePageModel(tampered).ok, false,
       'glyph-level tampering is rejected by the PageModel content hash');
+
+    const geometryTampered = structuredClone(envelope);
+    const geometryLine = geometryTampered.model.pages.flatMap(page => page.lines)
+      .find(item => item.projected !== false && Array.isArray(item.words) &&
+        item.words.some(word => Number.isFinite(word.x)));
+    assert(geometryLine, 'a positioned line with word geometry exists for the negative control');
+    geometryLine.words.find(word => Number.isFinite(word.x)).x += 1;
+    assertEq(receivePageModel(geometryTampered).ok, false,
+      'geometry tampering is rejected by the PageModel geometry hash');
   });
 
 });
