@@ -206,8 +206,7 @@ describe('Production typography runtime — pinned local assets', () => {
               { tag: 'rlig', value: 1 }
             ]
           },
-          variationAxesByFontId: { [registered.fontId]: [] },
-          includeGlyphOutlines: true
+          variationAxesByFontId: { [registered.fontId]: [] }
         }
       };
       const result = typeset(
