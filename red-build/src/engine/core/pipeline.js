@@ -1592,6 +1592,9 @@ function typeset(rawText, settingsIn, env = {}) {
     // את המודל המלא; הייצוא והבדיקות צורכים אותו ישירות מהתוצאה.
     pageModel: pageModelResult.model,
     pageModelValidation: pageModelResult.validation,
+    // נשמר בזיכרון ה-Worker לצורכי ייצוא בלבד; אינו חלק מסריאליזציית UI.
+    // זהו אותו resolver מאומת ששימש בבניית המודל ובמדידת התמונות.
+    assetResolver: docAssets,
     plannerTrace: plannerTrace.enabled ? plannerTrace.toJSON() : plannerTrace.stats()
   };
 }
