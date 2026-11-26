@@ -1,0 +1,224 @@
+{
+  "schema": "tora-red-phase1-baseline-v2",
+  "capturedAt": "2026-11-26T05:44:36Z",
+  "repository": "SUGINACH/Tora_Book_Typesetter_Red_Work_2",
+  "branch": "engine/legacy-parity-preview-20261119",
+  "sourceCommit": "e1f69a2ad73a1524237ff5a2a341ff9e597a04af",
+  "ghPagesCommit": "93178e6c6f60d51ad25e30952c200438ce0c5f2b",
+  "deployment": {
+    "publicRoot": "https://suginach.github.io/Tora_Book_Typesetter_Red_Work_2/",
+    "profile": "unified",
+    "builtAt": "2026-11-26T05:33:28Z",
+    "mode": "direct-gh-pages-deploy-no-main-merge",
+    "buildInfoCommitMatchesTestedSource": true,
+    "pagesHttpServedExactSourceCommit": true
+  },
+  "liveAudit": {
+    "workflowRun": 45762332053,
+    "jobId": 139715158078,
+    "artifactId": 15091331105,
+    "pageModelPages": 691,
+    "htmlPages": 691,
+    "pdfPages": 691,
+    "extractedHebrewCharacters": 1507214,
+    "lines": 44360,
+    "words": 360356,
+    "problems": 0,
+    "determinism": "IDENTICAL",
+    "impactSignature": {
+      "input": "91fe1a2fd616e1fd",
+      "settings": "654391c7c2c61095",
+      "geometry": "b11bd54934b55627",
+      "content": "e392b5e439f17e89"
+    }
+  },
+  "ci": {
+    "run": 45762332098,
+    "conclusion": "success",
+    "fullTestFiles": 108,
+    "nodeVersions": {
+      "18": {
+        "jobId": 139714987490,
+        "conclusion": "success"
+      },
+      "20": {
+        "jobId": 139714987452,
+        "conclusion": "success"
+      },
+      "22": {
+        "jobId": 139714987140,
+        "conclusion": "success"
+      }
+    },
+    "perNodeGates": {
+      "testDocGenerator": "14/14",
+      "s3FontSync": "12/12",
+      "s10Ui": "45/45",
+      "s72ColumnBottoms": "15/15",
+      "s74PdfMarkAdvance": "3/3",
+      "scanControlViolations": 0,
+      "determinismHashPrefix": "89a0eb42c774943b",
+      "crossCheck": "PASSED"
+    },
+    "layoutAudit": {
+      "jobId": 139714987522,
+      "virtualizedCorpusPages": 849,
+      "conclusion": "success"
+    }
+  },
+  "additionalWorkflows": {
+    "fullMathRun": 45762332021,
+    "corpusInvariantsRun": 45762332159,
+    "bundleRebuildRun": 45762332065,
+    "shapingRuntimePocRun": 45762332095,
+    "shapingRuntimePocArtifactId": 15090765335,
+    "shapingRuntimeAssetsArtifactId": 15089534679
+  },
+  "frankRealExactWorkerProbe": {
+    "font": "FrankReal-Bold.ttf",
+    "sha256": "b90214b570d63f225282c4d3c3a5f023ad0d2d415043ae69926c0cc79ef2237a",
+    "upem": 2048,
+    "text": "שְׁמַע",
+    "utf16Range": [
+      500,
+      506
+    ],
+    "graphemes": [
+      [
+        "שְׁ",
+        500,
+        503
+      ],
+      [
+        "מַ",
+        503,
+        505
+      ],
+      [
+        "ע",
+        505,
+        506
+      ]
+    ],
+    "glyphsVisualRtl": [
+      {
+        "gid": 193,
+        "cluster": 505,
+        "sourceRange": [
+          505,
+          506
+        ],
+        "xAdvance": 972,
+        "yAdvance": 0,
+        "xOffset": 0,
+        "yOffset": 0
+      },
+      {
+        "gid": 163,
+        "cluster": 503,
+        "sourceRange": [
+          503,
+          505
+        ],
+        "xAdvance": 0,
+        "yAdvance": 0,
+        "xOffset": 0,
+        "yOffset": 0
+      },
+      {
+        "gid": 189,
+        "cluster": 503,
+        "sourceRange": [
+          503,
+          505
+        ],
+        "xAdvance": 1042,
+        "yAdvance": 0,
+        "xOffset": 0,
+        "yOffset": 0
+      },
+      {
+        "gid": 156,
+        "cluster": 500,
+        "sourceRange": [
+          500,
+          503
+        ],
+        "xAdvance": 0,
+        "yAdvance": 0,
+        "xOffset": 0,
+        "yOffset": 0
+      },
+      {
+        "gid": 172,
+        "cluster": 500,
+        "sourceRange": [
+          500,
+          503
+        ],
+        "xAdvance": 0,
+        "yAdvance": 0,
+        "xOffset": 0,
+        "yOffset": 0
+      },
+      {
+        "gid": 200,
+        "cluster": 500,
+        "sourceRange": [
+          500,
+          503
+        ],
+        "xAdvance": 1261,
+        "yAdvance": 0,
+        "xOffset": 0,
+        "yOffset": 0
+      }
+    ],
+    "combiningMarkGids": [
+      163,
+      156,
+      172
+    ],
+    "combiningMarkXAdvanceSum": 0,
+    "exactNodeShapedRunParity": true,
+    "classicWorkerProbePassed": true,
+    "nodeAndWorkerGeneralParity": {
+      "fontInstances": 16,
+      "glyphRecords": 659,
+      "clusterSourceCompatibilityCases": 80
+    },
+    "caveat": "FrankReal source has no GPOS/GSUB; the exact word proof validates metrics/data parity, not general visual mark positioning."
+  },
+  "productionIntegration": {
+    "workerLoadsPinnedRuntime": true,
+    "workerInjectsRuntimeIntoTypesetEnvironment": true,
+    "pipelineConsumesRuntimeAsShaper": false,
+    "splitTextItemRunsBeforeShaping": true,
+    "measureApiConsumesShapedRun": false,
+    "lineModelCarriesAuthoritativeGlyphs": false,
+    "pageModelCarriesAuthoritativeGlyphs": false,
+    "domHtmlPdfProjectSameGlyphData": false,
+    "status": "open"
+  },
+  "pdfMetricWorkaround": {
+    "s74PassesAllNodeVersions": true,
+    "testedPolicy": "zero combining-mark advances in PDF /W table under unified mode",
+    "acceptanceBoundary": "width regression only; not accepted as final glyph positioning/ink solution"
+  },
+  "unresolvedInputs": {
+    "rawWoff2FixturesRequiringNormalization": [
+      "Ambivalenti-Regular.woff2",
+      "FrankBasic-1-regular.woff2",
+      "Mixtape-Bold.woff2",
+      "Mixtape-Regular.woff2"
+    ]
+  },
+  "scope": {
+    "mainTouched": false,
+    "legacyEngineTouched": false,
+    "userFontFilesModified": false,
+    "defaultsChanged": false,
+    "pageGeometryChanged": false,
+    "p6P7Touched": false
+  }
+}
