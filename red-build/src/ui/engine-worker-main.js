@@ -184,8 +184,10 @@ function createEngineWorkerMain(post, options = {}) {
       // תיקון ביקורת PR #22: ההודעה מגיעה מהלקוח החי (requestTypeset.assets) ולא
       // רק תיאורטית; ה-resolver משוחזר במטמון לפי זהות ה-transport (בלי פענוח חוזר).
       const docAssets = _resolverForAssets(msg.assets);
+      const shapingEnabled = !!(msg.settings && msg.settings._typographyShaping
+        && msg.settings._typographyShaping.enabled === true);
       const typographyRuntime = getTypographyRuntime();
-      if (requireTypographyRuntime && (!typographyRuntime ||
+      if (shapingEnabled && requireTypographyRuntime && (!typographyRuntime ||
           !typographyRuntime.unicode || typographyRuntime.unicode.unicodeVersion !== '18.0.0' ||
           !typographyRuntime.harfbuzz || typeof typographyRuntime.harfbuzz.shape !== 'function' ||
           typeof typographyRuntime.createShaper !== 'function')) {
@@ -313,10 +315,12 @@ function bootWorkerContext(ctx, options = {}) {
       handler(message);
       return;
     }
-    // The actual browser Worker has location.href and must load the verified runtime.
-    // Minimal fakeSelf contexts used by the bundle's synchronous harness have no
-    // Worker location and exercise only the protocol/bootstrap behavior.
-    if (!isRealWorkerContext) {
+    // The pinned runtime is required only for an explicit, complete shaping
+    // policy. Ordinary legacy/unified requests keep their current shaping path
+    // and do not download or initialize a staged HarfBuzz runtime.
+    const shapingEnabled = !!(message.settings && message.settings._typographyShaping
+      && message.settings._typographyShaping.enabled === true);
+    if (!isRealWorkerContext || !shapingEnabled) {
       handler(message);
       return;
     }
