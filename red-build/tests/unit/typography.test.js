@@ -2,7 +2,12 @@
 'use strict';
 
 const { describe, it, assert, assertEq, assertClose, report } = require('../harness');
-const { MeasureAPI } = require('../../src/engine/typography/measure-api');
+const fs = require('fs');
+const path = require('path');
+const { MeasureAPI, measureItem } = require('../../src/engine/typography/measure-api');
+const fontResolver = require('../../src/engine/typography/font-resolver');
+const { createShapedRun } = require('../../src/engine/typography/shaped-run');
+const { projectShapedTextItemRanges } = require('../../src/engine/typography/paragraph-shaping');
 const { breakLines } = require('../../src/engine/typography/kp-linebreak');
 const { protectWords, glueNoteMarkers, fixDropWordInColumns } = require('../../src/engine/typography/protectors');
 const { applyDropWord } = require('../../src/engine/typography/dropword');
@@ -177,4 +182,80 @@ describe('REQ-LB-07 runt protection', () => {
   });
 });
 
+describe('HarfBuzz measured advances — canonical MeasureAPI path', () => {
+  it('uses shaped glyph advances, binds the source font identity, and separates cache entries by shaping data', () => {
+    const alias = 'MeasureAPI HarfBuzz Fixture';
+    const bytes = fs.readFileSync(path.join(__dirname, '../../ui/assets/imud/fonts/FrankReal-Bold.ttf'));
+    const registered = fontResolver.registerFont(alias, bytes, { source: 'measure-api-shaping-test' });
+    assert(registered.ok, 'real test font is registered through the canonical FontResolver');
+    const fontId = registered.fontId;
+    const record = registered.record;
+    const text = 'שלום';
+    const start = 100;
+    const end = start + text.length;
+    const graphemes = Array.from(text, (character, index) => ({
+      start: start + index, end: start + index + 1, text: character
+    }));
+    const style = { sizePt: 12, lineHeight: 1.2, fontIds: [fontId], family: alias, defaultFamily: alias };
+    const ctx = { direction: 'rtl', language: 'he', settings: { '_marks-advance': 'combined' } };
+    const makeItem = (advancePerGlyph) => {
+      const shapedRun = createShapedRun({
+        id: 'measure-api-shaped-word', text,
+        sourceRange: { start, end, blockId: 'measure-api-test', itemId: 'measure-api-item' },
+        font: { fontId, faceIndex: 0, unitsPerEm: record.unitsPerEm, sourceHash: record.sourceHash },
+        shaping: {
+          engine: 'harfbuzz', engineVersion: '15.0.0', unicodeVersion: '18.0.0',
+          script: 'Hebr', language: 'he', direction: 'rtl', bidiLevel: 1,
+          bot: true, eot: true, clusterLevel: 'monotone-characters',
+          variationAxes: [], features: [{ tag: 'kern', value: 1 }]
+        },
+        graphemes,
+        glyphs: graphemes.map((grapheme, index) => ({
+          gid: index + 1, cluster: grapheme.start, xAdvance: advancePerGlyph,
+          yAdvance: 0, xOffset: 0, yOffset: 0, flags: 0, controlBounds: null, inkBounds: null
+        })).reverse()
+      });
+      const shapedTextItem = {
+        kind: 'ShapedTextItem', itemId: 'measure-api-item', text,
+        sourceRange: { start, end }, shapedRuns: [shapedRun], nonShapingRuns: []
+      };
+      const shapingSlices = projectShapedTextItemRanges(shapedTextItem, [{ start, end }]);
+      return { id: 'same-measurement-id', kind: 'text', payload: { runs: [{ text, fontFamily: alias }] }, shapingSlices };
+    };
+    const first = measureItem(makeItem(500), style, ctx);
+    assert(first.ok, 'shaped text is measured successfully: ' + JSON.stringify(first));
+    const firstExpected = (4 * 500 / record.unitsPerEm) * (12 * 96 / 72);
+    assertClose(first.advance, firstExpected, 1e-9, 'advance comes directly from the four HarfBuzz glyph advances');
+    assertEq(first.shaping.engine, 'harfbuzz');
+    assertEq(first.shaping.glyphCount, 4);
+    const second = measureItem(makeItem(700), style, ctx);
+    assert(second.ok, 'second shaped measurement succeeds');
+    const secondExpected = (4 * 700 / record.unitsPerEm) * (12 * 96 / 72);
+    assertClose(second.advance, secondExpected, 1e-9, 'a new shaping result produces its own width');
+    assert(second.advance > first.advance, 'different glyph advances cannot reuse a stale item-cache result');
+  });
+  it('rejects unresolved visible text instead of silently reverting to character metrics', () => {
+    const alias = 'MeasureAPI HarfBuzz Fixture';
+    const registered = fontResolver.registerFont(alias,
+      fs.readFileSync(path.join(__dirname, '../../ui/assets/imud/fonts/FrankReal-Bold.ttf')));
+    assert(registered.ok);
+    const text = 'שלום', start = 200, end = 204;
+    const graphemes = Array.from(text, (character, index) => ({ start: start + index, end: start + index + 1, text: character }));
+    const run = createShapedRun({
+      id: 'measure-api-negative-control', text, sourceRange: { start, end, itemId: 'negative-control' },
+      font: { fontId: registered.fontId, faceIndex: 0, unitsPerEm: registered.record.unitsPerEm, sourceHash: registered.record.sourceHash },
+      shaping: { engine: 'harfbuzz', engineVersion: '15.0.0', unicodeVersion: '18.0.0', script: 'Hebr', language: 'he', direction: 'rtl', bidiLevel: 1, bot: true, eot: true, clusterLevel: 'monotone-characters', variationAxes: [], features: [] },
+      graphemes,
+      glyphs: graphemes.map((g, i) => ({ gid: i + 1, cluster: g.start, xAdvance: 400, yAdvance: 0, xOffset: 0, yOffset: 0, flags: 0, controlBounds: null, inkBounds: null })).reverse()
+    });
+    const shapedTextItem = { kind: 'ShapedTextItem', itemId: 'negative-control', text, sourceRange: { start, end }, shapedRuns: [run], nonShapingRuns: [] };
+    const slices = projectShapedTextItemRanges(shapedTextItem, [{ start, end }]);
+    const invalidSlices = { ...slices, nonShapingRuns: [{ kind: 'unresolved', text: '־', start: end, end: end + 1, sourceRanges: [] }] };
+    const result = measureItem({ id: 'negative-unresolved', kind: 'text', payload: { runs: [{ text, fontFamily: alias }] }, shapingSlices: invalidSlices },
+      { sizePt: 12, lineHeight: 1.2, fontIds: [registered.fontId], family: alias, defaultFamily: alias },
+      { direction: 'rtl', language: 'he' });
+    assertEq(result.ok, false, 'unresolved visible text is not measured by a silent fallback');
+    assertEq(result.code, 'unshaped-visible-text');
+  });
+});
 report('typography');
