@@ -17,7 +17,7 @@ const { describe, it, assert, assertClose, report } = require('../harness');
 const { typeset } = require('../../src/engine/core/pipeline');
 const { getDefaultSettings } = require('../../src/engine/core/settings-registry');
 const { exportPdfFromModel } = require('../../src/engine/output/export-api');
-const { registerFont, clearRegisteredFonts } = require('../../src/engine/typography/measure-api');
+const fontResolver = require('../../src/engine/typography/font-resolver');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const ASSETS = path.join(REPO, 'ui/assets/imud');
@@ -58,10 +58,17 @@ function pdfWordsOnPage(pdfPath, pageNo) {
 }
 
 function setup() {
-  clearRegisteredFonts();
+  fontResolver.clearFontResolver();
   for (const f of ['Frank Ruhl Libre', 'David Libre', 'Hadassah Friedlaender', 'FrankReal']) {
     const e = CATALOG.find(x => x.family === f);
-    if (e) registerFont(f, fs.readFileSync(path.join(FONT_DIR, e.file)));
+    if (e) {
+      const registration = fontResolver.registerFont(
+        f,
+        fs.readFileSync(path.join(FONT_DIR, e.file)),
+        { source: 's74-regression' }
+      );
+      assert(registration.ok, 'רישום קנוני של ' + f + ' נכשל: ' + (registration.message || registration.code || 'unknown'));
+    }
   }
   // **S74 (גרסה 3 — תיקון סביבת השער):** גוף המסמך ב-FrankReal הרשום. כך
   // המדידה רצה במימוש font-metrics עם combined (ה-pipeline קובע את הדגל על
@@ -113,7 +120,7 @@ describe('S74 — פגם הקרנת ניקוד משולב ב-PDF (FrankReal שְ
     const basesPt = BASE_UNITS / FRANKREAL_UPM * 14 * (96 / 72) * (72 / 96); // גוף 14pt — בסיסים בלבד
     assertClose(modelWpt, basesPt, 0.5,
       `סביבת השער: המודל חייב למדוד בסיסים-בלבד במדדי FrankReal (קיבלנו ${modelWpt.toFixed(3)}pt מול ${basesPt.toFixed(3)}pt) — אחרת המדידה נפלה מ-font-metrics/combined והשער מודד קונפליקט סביבה.`);
-    clearRegisteredFonts();
+    fontResolver.clearFontResolver();
   });
 
   it('שער הנפל: רוחב שְׁמַע ב-PDF חייב להתאים לרוחב המילה במודל (±0.5pt)', () => {
@@ -140,7 +147,7 @@ describe('S74 — פגם הקרנת ניקוד משולב ב-PDF (FrankReal שְ
     const markAdvancePt = MARK_UNITS * (sizePx * 72 / 96) / FRANKREAL_UPM;
     assertClose(pdfWidthPt, modelWidthPt, 0.5,
       `פגם הקרנת ניקוד משולב ב-PDF (פורנזי §7): רוחב שְׁמַע ב-PDF=${pdfWidthPt.toFixed(3)}pt מול המודל=${modelWidthPt.toFixed(3)}pt — הפרש ${(pdfWidthPt - modelWidthPt).toFixed(3)}pt ≈ advances ניקוד גולמי (${markAdvancePt.toFixed(3)}pt). ה-PDF בונה מילים תו-תו עם hmtx גולמי במקום להקרין את מדידת המודל (combined). תיקון שורש: הכותב מקרין את החלטת המדידה (/W מאופס לניקוד); אין לתקן במרווח/CSS/offset.`);
-    clearRegisteredFonts();
+    fontResolver.clearFontResolver();
   });
 });
 

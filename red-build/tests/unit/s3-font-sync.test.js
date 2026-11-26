@@ -200,6 +200,53 @@ describe('שלב 3 — סנכרון פעולות ניקוי: אין מצב "לא
     assert(!registeredFonts.has('Frank Ruhl Libre') && !fontResolver.resolveFont('Frank Ruhl Libre').ok, 'נקי משני הצדדים');
     void reg;
   });
+  it('measureItem propagates combined-mark policy and isolates font/item caches', () => {
+    fontResolver.clearFontResolver();
+    measureApi.clearItemMeasureCache();
+    try {
+      const reg = fontResolver.registerFont('FrankReal', bytesOf('FrankReal'));
+      assert(reg.ok, reg.message || 'FrankReal registration failed');
+      const item = {
+        id: 'combined-mark-policy-cache-probe',
+        kind: 'text',
+        payload: { runs: [{ text: 'שְׁמַע', fontFamily: 'FrankReal' }] }
+      };
+      const style = {
+        sizePt: 14,
+        lineHeight: 1.4,
+        fontIds: [reg.fontId],
+        family: 'FrankReal',
+        defaultFamily: 'FrankReal'
+      };
+      const combined = measureApi.measureItem(item, style, {
+        direction: 'rtl',
+        settings: { '_marks-advance': 'combined' }
+      });
+      const hmtx = measureApi.measureItem(item, style, {
+        direction: 'rtl',
+        settings: {}
+      });
+      assert(combined.ok, 'combined measurement succeeds: ' + (combined.message || combined.code || ''));
+      assert(hmtx.ok, 'hmtx measurement succeeds: ' + (hmtx.message || hmtx.code || ''));
+      const combinedPt = combined.advance * 72 / 96;
+      const hmtxPt = hmtx.advance * 72 / 96;
+      const expectedBasesPt = 3275 / 2048 * 14;
+      const expectedMarkPt = 1793 / 2048 * 14;
+      assert(Math.abs(combinedPt - expectedBasesPt) < 0.05,
+        'combined advances equal FrankReal base glyphs: expected ' + expectedBasesPt.toFixed(3) + 'pt, got ' + combinedPt.toFixed(3) + 'pt');
+      assert(Math.abs((hmtxPt - combinedPt) - expectedMarkPt) < 0.05,
+        'hmtx mode retains the three positive raw mark advances: expected delta ' + expectedMarkPt.toFixed(3) + 'pt, got ' + (hmtxPt - combinedPt).toFixed(3) + 'pt');
+      const combinedAgain = measureApi.measureItem(item, style, {
+        direction: 'rtl',
+        settings: { '_marks-advance': 'combined' }
+      });
+      assert(Math.abs(combinedAgain.advance * 72 / 96 - expectedBasesPt) < 0.05,
+        'returning to combined mode retrieves its own item-cache entry');
+    } finally {
+      fontResolver.clearFontResolver();
+      measureApi.clearItemMeasureCache();
+    }
+  });
 });
 
 report('s3-font-sync');
