@@ -9,6 +9,7 @@ const os = require('os');
 const path = require('path');
 const { pathToFileURL } = require('url');
 
+const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const REPORT = process.env.BIDI_POC_REPORT || '/tmp/bidi-runtime-poc-report.json';
 const AGENT_BROWSER = process.env.AGENT_BROWSER || 'agent-browser';
 
