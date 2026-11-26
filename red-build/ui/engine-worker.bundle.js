@@ -12304,6 +12304,9 @@ function planPages(blocks, settings, eventLog, ledger = new Ledger(), env = {}) 
           cur.footnotes.push({
             ...n, text: firstText, heightPx: cutRow * fnLH, lineH: fnLH, linesCount: cutRow,
             noteRows: rows.slice(0, cutRow), noteWords: wordsArr.slice(0, cutIdx),
+            ...(Array.isArray(n.noteWordTypography)
+              ? { noteWordTypography: n.noteWordTypography.slice(0, cutIdx) }
+              : {}),
             mode: 'split-first', linesShown: cutRow,
             wordRange: { from: n.wordRange ? n.wordRange.from : 0, to: (n.wordRange ? n.wordRange.from : 0) + cutIdx }
           });
@@ -15686,7 +15689,7 @@ function shapeNoteText(text, note, ctx, measure, role) {
         text: value,
         sourceStart: 0,
         sourceEnd: value.length,
-        ...(ctx.fontName ? { fontFamily: ctx.fontName } : {})
+        ...(service.useItemFontRole === true && ctx.fontName ? { fontFamily: ctx.fontName } : {})
       }]
     }
   };
