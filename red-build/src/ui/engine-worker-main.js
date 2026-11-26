@@ -129,7 +129,10 @@ function handleExportRequest(msg, post) {
           post({ type: 'export-result', jobId: msg.jobId, kind: 'pdf', ok: false, error: 'model-required: אין PageModel בזיכרון — הפעילו עימוד לפני ייצוא (אין עימוד שני ואין נתיב חלופי)' });
           return;
         }
-        const res = exportPdfFromModel(_lastTypesetResult.pageModel, msg.settings, u8, msg.fontName);
+        const res = exportPdfFromModel(
+          _lastTypesetResult.pageModel, msg.settings, u8, msg.fontName,
+          _lastTypesetResult.assetResolver || null
+        );
         if (!res.ok) { post({ type: 'export-result', jobId: msg.jobId, kind: 'pdf', ok: false, error: res.error }); return; }
         post({ type: 'export-result', jobId: msg.jobId, kind: 'pdf', ok: true, bytes: new Uint8Array(res.bytes), info: res.info || null });
         return;
