@@ -861,10 +861,11 @@ function projectSideNotes(page, settings, measure, out) {
         });
       }
     }
+    const noteColor = colorOfSetting(isBox ? settings['s-note-body-color'] : settings['heading-7-color']);
     const rec = projectStampedRows(sn, sn.x, boxW, sn.yTop, {
       sizePt,
       fontKey: familyFontKeyOf(sn.stampCtx && sn.stampCtx.fontName || settings['s-note-body-font']) || null,
-      color: colorOfSetting(settings['s-note-body-color']), measure,
+      color: noteColor, measure,
       padPx: isBox ? chrome.pad + chrome.border : 0,
       align: 'center' // **G4/RC-4d:** הערות-צד ממורכזות כמו המקור (מרזב: יישור מלא)
     });
