@@ -774,7 +774,11 @@ function typeset(rawText, settingsIn, env = {}) {
   // **פרוסה 2 (§2.7):** רשם ה-trace — opt-in (env.plannerTrace או settings._plannerTrace);
   // כבוי בברירת המחדל. הספירות תמיד זמינות (stats) גם כשהרשומות כבויות.
   const plannerTrace = (env && env.plannerTrace) || createTraceRecorder({ enabled: settings['_plannerTrace'] === true });
-  const planned = planPages(blocks, settings, eventLog, ledger, { measure: measureWithImpl, onProgress, trace: plannerTrace });
+  const planned = planPages(blocks, settings, eventLog, ledger, {
+    measure: measureWithImpl, onProgress, trace: plannerTrace,
+    heading7Measure: measureH7Notes,
+    infoBoxMeasure: measureInfoBoxes
+  });
   let { pages } = planned;
   prog('page-plan', 70, 'הפריסה הושלמה', { totalPages: pages.length, pageIndex: pages.length });
 
