@@ -135,3 +135,25 @@
 - [x] מפת תלויות ורישום כפילויות מעודכנים (h3-contract במפה; מלאי פרוסה 6)
 - [x] parity תלת-יעדי וביצועים (פרוסה 6)
 - [ ] **תלוי שלב 9:** הסרת legacy, shadow comparison מלא, החלפת ברירת מחדל — שלב 8 נסגר בפרופיל המאוחד כשיעד המוגדר; המעבר הסופי (ברירת מחדל + הסרת נתיבים) שייך לשלב 9 כמתוכנן.
+
+## עדכון 26.11.2026 — שילוב טיפוגרפיה מעוצבת בהקרנות DOM/HTML/PDF (מימוש חדש; שערי קבלה ממתינים)
+
+העדכון הזה מתאר קוד שנוסף לאחר סגירת פרוסות 8a–8g ההיסטוריות. אין להעתיק את סטטוסי האימות של 17.11 ליישום החדש.
+
+### נתיב המימוש שהוסף
+1. **Shaping לפני פיצול מילים:** `production-paragraph-shaper.js` יוצר את שירות ה־paragraph shaper מתוך runtime מאומת ומדיניות מפורשת במסמך. `pipeline.js` מזרים אותו ל־line-items לפני `splitTextItem`. ללא `_typographyShaping.enabled=true` ההתנהגות הישנה נשמרת; מדיניות חסרה גורמת לשגיאה מפורשת.
+2. **מקור מדידה יחיד:** `measureItem` מחשב advance מתוך xAdvance של ShapedRun, ומקבל shaping גם במילים וגם ב־glue שמייצג רווח מקור. מפתח המטמון כולל את נתוני ה־shaping.
+3. **עד המיקום הסופי:** ShapedRun slices נשמרים ב־LineModel, מוקרנים למילים הממוקמות ב־materialize, מועתקים ל־PageModel ומוגנים ב־contentHash ובאינווריאנט `page-word-typography-v1`.
+4. **קווי מתאר:** HarfBuzz DrawFuncs מפיקים outline לכל GID; המחרוזת הווקטורית מוגבלת בגודל ונשמרת ב־ShapedGlyph. כל shaping production לוכד outlines כברירת מחדל.
+5. **DOM/HTML:** `pagemodel-dom-renderer.js` מקרין את ה־outlines כ־SVG paths במיקום המילה הסופי, שומר טקסט נגיש/להעתקה, ומדווח diagnostic מפורש אם outline חסר.
+6. **PDF:** `pdf-writer.js` ממיר את אותן פקודות outline ל־PDF vector paths, משתמש ב־Bidi levels של ShapedRuns לסדר ויזואלי, ומצמיד `/ActualText` עם הטקסט הלוגי. `exportPdfFromModel` דוחה מילה מעוצבת שאין לה outline; אין חזרה שקטה לציור טקסט שמבצע shaping אחר.
+
+### בדיקות שנוספו — עדיין אין לסמן כעוברות
+- MeasureAPI: advances מעוצבים, בידוד cache ו־negative control לטקסט גלוי שלא עבר shaping.
+- Production runtime: typeset עם runtime מקומי וגופן אמיתי; בדיקת הגעת GID/offset/outline ל־PageModel.
+- S8D DOM: הקרנת SVG מתוך PageModel מוקפא, שימור Unicode ו־negative control ל־outline חסר.
+- S8F PDF: ציור GID כנתיב וקטורי, חילוץ Unicode דרך ActualText, ו־negative control שמסרב לייצא כשחסר outline.
+
+**מצב ראיות בעת העדכון:** הקוד והבדיקות נשמרו בענף; ריצות CI, Full Math, Corpus, shaping-runtime ו־Preview עבור ה־HEAD העדכני היו בתור/בתהליך. אין כאן טענה שהן עברו. יש לסגור את כל השערים על SHA אחד לאחר סיום הריצות, ואז לבצע בדיקת דפדפן/Worker אמיתי על DOM, HTML ו־PDF מאותו PageModel.
+
+**מגבלה מכוונת:** הפעלת shaping נשארת opt-in מפורש. שאלות ברירות המחדל/מדיניות הגופנים/שקילות בין סביבות והכרעת חוזה המודל לא נפתרות באמצעות קוד או דוח זה.
